@@ -1,0 +1,79 @@
+<ParaViewReaders>
+  <!-- 
+    NOTE: Readers are tried in reverse order that they are present in this
+    list i.e. if two readers can read the same extension, then the reader 
+    apperaring later will be tried first when reading the file. 
+  -->
+  <Proxy group="sources" name="VisItANALYZEReader" />  
+  <Proxy group="sources" name="VisItANSYSReader" />  
+  <Proxy group="sources" name="VisItAuxFileReader" />
+  <Proxy group="sources" name="VisItBOVReader" />    
+  <Proxy group="sources" name="VisItCEAucdReader" />  
+  <Proxy group="sources" name="VisItCGNSReader" />
+  <Proxy group="sources" name="VisItChomboReader" />
+  <Proxy group="sources" name="VisItClawReader" />
+  <Proxy group="sources" name="VisItCMATReader" />
+  <Proxy group="sources" name="VisItCTRLReader" />
+  <Proxy group="sources" name="VisItCurve2DReader" />
+  <Proxy group="sources" name="VisItDDCMDReader" />
+  <Proxy group="sources" name="VisItDyna3DReader" />
+  <Proxy group="sources" name="VisItEnzoReader" />
+  <Proxy group="sources" name="VisItExtrudedVolReader" />
+  <Proxy group="sources" name="VisItFLASHReader" />
+  <Proxy group="sources" name="VisItFluentReader" />
+  <Proxy group="sources" name="VisItGadgetReader" />
+  <Proxy group="sources" name="VisItGGCMReader" />  
+  <Proxy group="sources" name="VisItGTCReader" />
+  <Proxy group="sources" name="VisItGULPReader" />
+  <Proxy group="sources" name="VisItN5NimrodReader" />
+  <Proxy group="sources" name="VisItImageReader" />
+  <Proxy group="sources" name="VisItLAMMPSStructureReader" />
+  <Proxy group="sources" name="VisItLAMMPSDumpReader" />
+  <Proxy group="sources" name="VisItLinesReader" />
+  <Proxy group="sources" name="VisItM3DReader" />
+  <Proxy group="sources" name="VisItM3DC1Reader" />  
+  <Proxy group="sources" name="VisItMiliReader" />
+  <Proxy group="sources" name="VisItMirandaReader" />
+  <Proxy group="sources" name="VisItMM5Reader" />
+  <Proxy group="sources" name="VisItNASTRANReader" />
+  <Proxy group="sources" name="VisItNetCDFADAPTReader" />
+  <Proxy group="sources" name="VisItNetCDFLODIReader" />
+  <Proxy group="sources" name="VisItNetCDFLODIParticleReader" />
+  <Proxy group="sources" name="VisItNetCDFFVCOM_STSDReader" />
+  <Proxy group="sources" name="VisItNetCDFFVCOM_MTMDReader" />
+  <Proxy group="sources" name="VisItNetCDFFVCOM_MTSDReader" />
+  <Proxy group="sources" name="VisItNetCDFFVCOMParticleReader" />
+  <Proxy group="sources" name="VisItNetCDFCCSM_MTSDReader" />
+  <Proxy group="sources" name="VisItNetCDFCCSM_STSDReader" />
+  <Proxy group="sources" name="VisItNetCDFBasic_MTSD_NETCDFReader" />
+  <Proxy group="sources" name="VisItNetCDFBasic_STSD_NETCDFReader" />  
+  <Proxy group="sources" name="VisItNek5000Reader" />  
+  <Proxy group="sources" name="VisItParaDisReader" />
+  <Proxy group="sources" name="VisItParaDisTecplotReader" />
+  <Proxy group="sources" name="VisItPATRANReader" />
+  <Proxy group="sources" name="VisItPFLOTRANReader" />
+  <Proxy group="sources" name="VisItPixieReader" />
+  <Proxy group="sources" name="VisItPLOT2DReader" />
+  <Proxy group="sources" name="VisItPLOT3DReader" />
+  <Proxy group="sources" name="vtkVisItPOINT3DReader" />
+  <Proxy group="sources" name="VisItProteinDataBankReader" />    
+  <Proxy group="sources" name="VisItRAWReader" />
+  <Proxy group="sources" name="VisItSAMRAIReader" />  
+  <Proxy group="sources" name="VisItSARReader" />
+  <Proxy group="sources" name="VisItSASReader" />   
+  <Proxy group="sources" name="VisItSiloReader" />
+  <Proxy group="sources" name="VisItSpheralReader" />
+  <Proxy group="sources" name="VisItTecplotReader" />
+  <Proxy group="sources" name="VisItTecplotBinaryReader" />
+  <Proxy group="sources" name="VisItTetradReader" />
+  <Proxy group="sources" name="VisItTFTReader" />
+  <Proxy group="sources" name="VisItTSurfReader" />
+  <Proxy group="sources" name="VisItUNICReader" />
+  <Proxy group="sources" name="VisItVASPOUTCARReader" />
+  <Proxy group="sources" name="VisItVASPCHGCARReader" />
+  <Proxy group="sources" name="VisItVASPPOSCARReader" />
+  <Proxy group="sources" name="VisItVelodyneReader" />  
+  <Proxy group="sources" name="VisItVsReader" />  
+  <Proxy group="sources" name="VisItXmdvReader" />
+  <Proxy group="sources" name="VisItXYZReader" />
+</ParaViewReaders>  

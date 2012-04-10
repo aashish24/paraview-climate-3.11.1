@@ -1,0 +1,14 @@
+
+if(UNIX)
+
+  set(cmd "make")
+  if (APPLE)
+    set(ENV{LDFLAGS} "-undefined dynamic_lookup")
+  endif (APPLE)
+
+  EXECUTE_PROCESS(
+    COMMAND ${cmd}
+    WORKING_DIRECTORY "@python_base@"
+    )
+
+endif()

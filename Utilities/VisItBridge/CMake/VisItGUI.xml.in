@@ -1,0 +1,6 @@
+<ParaViewReaders>
+  <Reader name="@XML_NAME@"
+    extensions="@ARG_VISIT_READER_FILE_PATTERN@"
+    file_description="@ARG_VISIT_READER_NAME@ Reader">
+  </Reader>
+</ParaViewReaders>

@@ -1,0 +1,117 @@
+Describe radix-k algorithm.
+
+ietAddTile raises ICET_INVALID_VALUE if you try to create a tile with no
+pixels.
+
+icetFindRankInGroup, icetFindMyRankInGroup
+
+The following state variables are not set with sequential strategy:
+ICET_ALL_CONTAINED_TILES_MASKS, ICET_TILE_CONTRIB_COUNTS, and
+ICET_TOTAL_IMAGE_COUNT.
+
+Suggest using sequential strategy for single tile (because it skips some
+allgathers).
+
+icetCommBarrier
+
+icetImageAssignBuffer, icetSingleImageAssignBuffer
+
+icetWaitany returns index to finished request - different than MPI.
+
+icetCommGather, icetCommGatherV
+
+ICET_IN_PLACE_COLLECT
+
+ICET_SIZE_TYPE (list of types in implement new strategy -> Communications).
+
+const array for compose_group in single image strategy functions.
+
+icetSingleImageCompose interface change.
+
+icetSingleImageCollect.
+
+General change to single image strategy functions.
+
+ICET_MAGIC_K state variable, CMake variable, and environment variable.
+
+icetCompressedCompressedComposite
+
+icetSparseImageCopyPixels
+
+icetSparseImageSplit
+
+icetSparseImageSplitPartitionNumPixels
+
+icetImageEqual, icetSparseImageEqual
+
+icetDecompressSubImage
+
+icetRenderTransferSparseImages
+
+icetSparseImageNull, icetSparseImageIsNull
+
+icetUnsafeStateGet* now return const
+
+todo: correct background before gather
+
+ICET_INTERLACE_IMAGES
+
+icetSparseImageInterlace
+
+ICET_MAGIC_K environment variable, cmake variable, state variable
+
+ICET_COLLECT_TIME: The fraction of ICET_COMPOSITE_TIME spent in collecting
+image fragments to display process.
+
+ICET_COLLECT_IMAGES: When this option is on (the default) images partitions
+are always collected to display processes (the current behavior).  When
+turned off, the strategy has the option of leaving images partitioned
+amongst processes.  Each process containing part of a tile's image will
+return the entire buffer from icetDrawFrame in an IceTImage object.
+However, only certain pixels will be valid.  The state variables
+ICET_VALID_PIXELS_TILE, ICET_VALID_PIXELS_OFFSET, and ICET_VALID_PIXELS_NUM
+give which tile the pixels belong to and what range of pixels are valid.
+
+ICET_VALID_PIXELS_TILE: Gives the tile for which the last image returned
+from icetDrawFrame contains pixels.  Each process has its own value.  If
+the last call to icetDrawFrame did not return pixels for the local process,
+this variable is set to -1.  This state variable is only useful when
+ICET_COLLECT_IMAGES is off.  If on, it can be assumed that all display
+processes have valid pixels for their respective display tiles, and all
+other processes have no pixel data.  Strategies taking advantage of turning
+off ICET_COLLECT_IMAGES should set this.
+
+ICET_VALID_PIXELS_OFFSET, ICET_VALID_PIXELS_NUM: Gives the range of valid
+pixels for the last image returned from icetDrawFrame.  Given the arrays of
+pixels returned with the icetImageGetColor and icetImageGetDepth functions,
+the valid pixels start at the pixel indexed by ICET_VALID_PIXELS_OFFSET and
+continue for ICET_VALID_PIXELS_NUM.  The tile to which these pixels belong
+are captured in the ICET_VALID_PIXELS_TILE state variable.  If the last
+call to icetDrawFrame did not return pixels for the local process,
+ICET_VALID_PIXELS_NUM is set to 0.  This state variable is only useful when
+ICET_COLLECT_IMAGES is off.  If on, it can be assumed that all display
+processes contain all pixels in the image (ICET_VALID_PIXELS_OFFSET is 0
+and ICET_VALID_PIXELS_NUM is the number of pixels in the image), and all
+other processes have no pixel data.  Strategies taking advantage of turning
+off ICET_COLLECT_IMAGES should set this.
+
+ICET_MAX_IMAGE_SPLIT environment variable, cmake variable, state variable
+
+All the matrix math helpers icetMatrix* in IceTDevMatrix.h
+
+Const versions of icetImageGetColor* and icetImageGetDepth* functions.
+
+Added Alltoall to communicator.  (Search for Allgather for places to add in
+documentation.)
+
+icetSendRecvLargeMessages takes const array for messageDestinations.
+
+ICET_CORRECT_COLORED_BACKGROUND is now the responsibility of the strategy,
+not done automatically.  icetSingleImageCollect does it for you, though.
+
+Added internal state variables ICET_NEED_BACKGROUND_CORRECTION,
+ICET_TRUE_BACKGROUND_COLOR, and ICET_TRUE_BACKGROUND_COLOR_WORD.
+
+icetImageCorrectBackground, icetClearImageTrueBackground,
+icetDecompressImageCorrectBackground, and
+icetDecompressSubImageCorrectBackground functions.
