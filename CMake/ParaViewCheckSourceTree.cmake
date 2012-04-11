@@ -14,7 +14,7 @@ function(CheckGitDirectory path)
   endif()
 endfunction(CheckGitDirectory)
 
-set(ParaView_Submodules VTK Utilities/IceT Utilities/Xdmf2 Qt/Testing)
+#set(ParaView_Submodules VTK Utilities/IceT Utilities/Xdmf2 Qt/Testing)
 
 foreach(submodule ${ParaView_Submodules})
   # If this is a git checkout, then check the submodules were initialized.
