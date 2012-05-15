@@ -13,28 +13,32 @@
 
 =========================================================================*/
 // .NAME vtkUnstructuredPOPReader - read NetCDF files
-// .Author Joshua Wu 09.15.2009
 // .SECTION Description
-// vtkUnstructuredPOPReader is a source object that reads NetCDF files.
-// It should be able to read most any NetCDF file that wants to output a
-// rectilinear grid.  The ordering of the variables is changed such that
-// the NetCDF x, y, z directions correspond to the vtkRectilinearGrid
-// z, y, x directions, respectively.  The striding is done with
-// respect to the vtkRectilinearGrid ordering.  Additionally, the
-// z coordinates of the vtkRectilinearGrid are negated so that the
+// vtkUnstructuredPOPReader reads NetCDF POP files into a spherical shaped grid.
+// The input file has topologically structured data. The striding and VOI are done with
+// respect to the topologically structured ordering.  Additionally, the
+// z coordinates of the output grid are negated so that the
 // first slice/plane has the highest z-value and the last slice/plane
-// has the lowest z-value.
+// has the lowest z-value.  Note that depth_t is used for the z
+// location of the points.  For VOI and striding, striding is done
+// first and then the VOI is done.  For example, if stride was [1, 2, 3] for
+// a [3600, 2400, 42] grid then the wholeExtent would be [0, 3600, 0, 1200, 0, 14]
+// and then a VOI of [10, 300, 0, 1400, 2 8] would result in a whole
+// extent of [10, 300, 0, 1200, 2, 8] with the first point being [10, 0, 6]
+// in the [3600, 2400, 42] original grid.  The reader also requires
+// a GRID.nc file in the same directory as the main file.  This is used
+// to map from tripolar logical coordinates to lat-lon coordinates.
 
 #ifndef __vtkUnstructuredPOPReader_h
 #define __vtkUnstructuredPOPReader_h
 
 #include "vtkUnstructuredGridAlgorithm.h"
 
-class vtkDataArraySelection;
 class vtkCallbackCommand;
+class vtkDataArraySelection;
+class vtkIdList;
 class vtkUnstructuredPOPReaderInternal;
-
-#include <iostream>
+class VTKPointIterator;
 
 class VTK_IO_EXPORT vtkUnstructuredPOPReader : public vtkUnstructuredGridAlgorithm
 {
@@ -43,18 +47,22 @@ public:
   static vtkUnstructuredPOPReader *New();
   void PrintSelf(ostream& os, vtkIndent indent);
 
-  //Description:
-  //The file to open
+  // Description:
+  // The NetCDF file to open.
   vtkSetStringMacro(FileName);
   vtkGetStringMacro(FileName);
 
-  //Description:
-  //Enable subsampling in i,j and k dimensions in the vtkRectilinearGrid
+  // Description:
+  // Enable subsampling in i,j and k dimensions for the topologically
+  // structured input data. Note that if number of points in the
+  // z-direction are reduced that the vertical velocity will not be computed.
   vtkSetVector3Macro(Stride, int);
   vtkGetVector3Macro(Stride, int);
 
-  //Description:
-  //Enable subsampling in i,j and k dimensions in the vtkRectilinearGrid
+  // Description:
+  // Set the VOI of for the topologically structured input data.
+  // Note that if number of points in the z-direction are reduced
+  // that the vertical velocity will not be computed.
   vtkSetVector6Macro(VOI, int);
   vtkGetVector6Macro(VOI, int);
 
@@ -65,11 +73,22 @@ public:
   virtual int GetVariableArrayStatus(const char *name);
   virtual void SetVariableArrayStatus(const char *name, int status);
 
+  // Description:
+  // Set the outer radius of the Earth. By default it is 6371000
+  // which assumes the length is in meters.
   vtkSetMacro(Radius, double);
   vtkGetMacro(Radius, double);
 
+  // Description:
+  // Determine whether or not the input data is being interpolated
+  // at the U/vector points or T/scalar points.
+  // 0 means unset, 2 means vector field, and 1 means scalar field.
   vtkGetMacro(VectorGrid, int);
 
+  // Description:
+  // Specify whether or not to compute the vertical velocity component
+  // from the horizontal velocity components.  Default is false
+  // which signifies do not compute.
   vtkSetMacro(VerticalVelocity, bool);
   vtkGetMacro(VerticalVelocity, bool);
 
@@ -88,7 +107,14 @@ protected:
 
   vtkCallbackCommand* SelectionObserver;
 
+  // Description:
+  // The name of the file to be opened.
   char *FileName;
+
+  // Description:
+  // If a file is opened, the file name of the opened file.
+  char* OpenedFileName;
+  vtkSetStringMacro(OpenedFileName);
 
   int Stride[3];
 
@@ -97,18 +123,21 @@ protected:
   int NCDFFD;
 
   // Description:
-  // The file name of the opened file.
-  char* OpenedFileName;
-
-  vtkSetStringMacro(OpenedFileName);
-
-  // Description:
-  // The radius of the sphere to be outputted.
+  // The radius of the sphere to be outputted in meters. The default
+  // value is 6371000.
   double Radius;
 
   int VOI[6];
+
+  // Description:
+  // State variables so that we know whether or not we are only reading
+  // in part of the grid. SubsettingXMin and SubsettingXMax are used
+  // so that we can properly connect the grid in the longitudinal
+  // direction. We only compute the vertical velocity if we have
+  // the full height resolution of the grid.
   bool SubsettingXMin;
   bool SubsettingXMax;
+  bool ReducedHeightResolution;
 
   // Description:
   // Specify whether the grid points are at the vector field (U_LAT and U_LON) locations
@@ -123,11 +152,23 @@ protected:
   // (the default).
   bool VerticalVelocity;
 
-  bool Transform(vtkUnstructuredGrid* grid,
-                 size_t* start, size_t* count);
+  // Description:
+  // Transform the grid from a topologically structured grid to a sphere
+  // shaped grid and do any vector transformations on field data that
+  // is needed.
+  bool Transform(vtkUnstructuredGrid* grid, size_t* start, size_t* count,
+                 int* wholeExtent, int* subExtent, int numberOfGhostLevels,
+                 int wrapped, int piece, int numberOfPieces);
 
-  int ProcessGrid(vtkUnstructuredGrid* grid, int piece, int numberOfPieces, int &numberOfGhostLevels);
+  // Description:
+  // Given the meta data about the grid partitioning, read in the
+  // data from the file and create the unstructured grid.
+  int ProcessGrid(vtkUnstructuredGrid* grid, int piece,
+                  int numberOfPieces, int numberOfGhostLevels);
 
+  // Description:
+  // Reads the meta data from the NetCDF file for information like what
+  // variables exist and the dimensions of the grids and variables.
   // Returns true for success.  Also fills out wholeExtent.
   bool ReadMetaData(int wholeExtent[6]);
 
@@ -135,20 +176,65 @@ protected:
                          vtkInformationVector **inputVector,
                          vtkInformationVector *outputVector);
 
-  void LoadPointData(vtkUnstructuredGrid* grid, int netCDFFD, int varidp,
-                     size_t* start, size_t* count, ptrdiff_t* rStride, const char* arrayName);
+  // Description:
+  // Adds a point data field given by varidp in the NetCDF file
+  // to the grid's point data.  If the units is "centimeter/s"
+  // it scales the value by 1/100 (i.e. meter/s).
+  void LoadPointData(
+    vtkUnstructuredGrid* grid, int netCDFFD, int varidp, size_t* start,
+    size_t* count, ptrdiff_t* rStride, const char* arrayName);
 
-  void ComputeVerticalVelocity(vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent);
+  // Description:
+  // Compute the vertical velocity component and add it into
+  // the velocity field.
+  void ComputeVerticalVelocity(
+    vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent,
+    int numberOfGhostLevels, int latlonFileId);
 
-  // Returns true for success.  If numberOfGhostLevels is 0 and we need to
-  // compute gradients, it will increase the number of ghost levels to 1.
-  bool GetExtentInformation(int piece, int numberOfPieces, int &numberOfGhostLevels,
-                            int* wholeExtent, int *subExtent);
+  // Description:
+  // If the reader is being run in parallel, do the necessary
+  // communication to finish the vertical velocity integration
+  // on each process.
+  void CommunicateParallelVerticalVelocity(
+    vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent,
+    int numberOfGhostLevels, VTKPointIterator& pointIterator, double* w);
 
+  // Description:
+  // Given ijk indices with respect to WholeExtent, return the
+  // process that is considered owning this point. Here the process
+  // that owns the piece will have compuated a valid vertical velocity
+  // value to share with other processes that need the integrated
+  // vertical velocity value. This method returns -1 if no
+  // appropriate piece is found.
+  int GetPointOwnerPiece(
+    int iIndex, int jIndex, int kKindex, int numberOfPieces,
+    int numberOfGhostLevels, int* wholeExtent);
 
-  // returns true for success.
-  bool BuildGhostInformation(vtkUnstructuredGrid* grid, int ghostLevels,
-                             int* wholeExtent, int* subExtent, int wrapped);
+  // Description:
+  // Given ijk indices, fill pieceIds with the pieces which
+  // contain need this point for computing the vertical velocity.
+  // Note that the pieces with ghost points only used the reader are not
+  // included in the returned Id list.  The indices are with
+  // respect to WholeExtent.
+  void GetPiecesNeedingPoint(
+    int iIndex, int jIndex, int kKindex, int numberOfPieces,
+    int numberOfGhostLevels, int* wholeExtent, vtkIdList* pieceIds);
+
+  // Description:
+  // Given piece, numberOfPieces, numberOfGhostLevels, and wholeExtent,
+  // this method fills in subExtent. This method returns true for success.
+  bool GetExtentInformation(
+    int piece, int numberOfPieces, int numberOfGhostLevels,
+    int* wholeExtent, int *subExtent);
+
+  // Description:
+  // Build up the requested ghost information.  Note that if the
+  // vertical velocity is computed that the reader needs an extra
+  // layer of ghost cells.  This extra layer is removed before
+  // RequestData() is exited.  The method returns true for success.
+  bool BuildGhostInformation(
+    vtkUnstructuredGrid* grid, int numberOfGhostLevels, int* wholeExtent,
+    int* subExtent, int wrapped, int piece, int numberOfPieces);
 
 private:
   vtkUnstructuredPOPReader(const vtkUnstructuredPOPReader&);  // Not implemented.

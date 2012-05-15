@@ -27,6 +27,7 @@ PURPOSE.  See the above copyright notice for more information.
 #include "vtkExtentTranslator.h"
 #include "vtkFloatArray.h"
 #include "vtkGradientFilter.h"
+#include "vtkIdList.h"
 #include "vtkInformation.h"
 #include "vtkInformationVector.h"
 #include "vtkNew.h"
@@ -42,6 +43,7 @@ PURPOSE.  See the above copyright notice for more information.
 #include "vtk_netcdfcpp.h"
 
 #include "vtkMath.h"
+#include <set>
 #include <string>
 #include <vector>
 
@@ -49,24 +51,25 @@ PURPOSE.  See the above copyright notice for more information.
 
 #include "vtkIntArray.h"
 #include "vtksys/SystemTools.hxx"
-#include "vtkMultiProcessController.h"
+#include "vtkMPIController.h"
 
 namespace
 {
 //-----------------------------------------------------------------------------
+// If the grid is wrapped, we need to merge the point values for the
+// shared points that exist on the same process.
   template<class DataType>
-  void FixArray(DataType* array, size_t* start,
-                size_t* count, ptrdiff_t* rStride, int numberOfDimensions,
-                int fileId, int varidp)
+  void FixArrayForGridWrapping(
+    DataType* array, size_t* start, size_t* count, ptrdiff_t* rStride,
+    int numberOfDimensions, int fileId, int varidp)
   {
     // first get the new values
     DataType newValues[count[0]*count[1]];
     size_t newCount[3] = {count[0], count[1], 1};
     size_t newStart[3] = {start[0], start[1], 0};
-    ptrdiff_t newStride[3] = { rStride[0], rStride[1], 1 }; // last newStride shouldn't matter since we're only reading 1 entry in that dimension anyways
+    // last newStride shouldn't matter since we're only reading 1 entry in that dimension anyways
+    ptrdiff_t newStride[3] = { rStride[0], rStride[1], 1 };
     int offset = numberOfDimensions == 2 ? 1 : 0;
-    // nc_get_vars_float(fileId, varidp, newStart+offset, newCount+offset,
-    //                   newStride+offset, newValues);
     nc_get_vars_float(fileId, varidp, newStart+offset, newCount+offset,
                       newStride, newValues);
 
@@ -74,7 +77,8 @@ namespace
     DataType value;
     if(numberOfDimensions == 3)
       {
-      vtkIdType shiftAmount = static_cast<vtkIdType>(count[0]*count[1])-1; // the amount each tuple has to shift
+      // keep a running tab of the the amount each tuple has to shift
+      vtkIdType shiftAmount = static_cast<vtkIdType>(count[0]*count[1])-1;
       for(vtkIdType iz=static_cast<vtkIdType>(count[0])-1;iz>=0;iz--)
         {
         for(vtkIdType iy=static_cast<vtkIdType>(count[1])-1;iy>=0;iy--)
@@ -87,7 +91,7 @@ namespace
               std::copy(array+index, array+index+1, array+index+shiftAmount);
               if(shiftAmount < 0)
                 {
-                cerr << "i don't even know how to shift!!!!\n";
+                vtkGenericWarningMacro("Problem shifting values");
                 }
               }
             }
@@ -96,7 +100,6 @@ namespace
           shiftAmount--;
           }
         }
-      cerr << "the final shiftAmount is " << shiftAmount << " " << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId() << endl;
       }
     else if(numberOfDimensions == 2)
       {
@@ -111,7 +114,7 @@ namespace
             std::copy(array+index, array+index+1, array+index+shiftAmount);
             if(shiftAmount < 0)
               {
-              cerr << "i don't even know how to shift!!!!\n";
+              vtkGenericWarningMacro("Problem shifting values");
               }
             }
           }
@@ -119,11 +122,11 @@ namespace
         array[count[2]+iy*(count[2]+1)] = newValues[iy];
         shiftAmount--;
         }
-      cerr << "the final shiftAmount is " << shiftAmount << " " << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId() << endl;
       }
   }
 
 //-----------------------------------------------------------------------------
+// convert a group of scalar arrays into a vector (3 component) array
   void ConvertScalarsToVector(vtkPointData* pointData,
                               std::vector<std::string> & scalarArrayNames)
   {
@@ -139,7 +142,8 @@ namespace
     for(std::vector<std::string>::iterator it=scalarArrayNames.begin();
         it!=scalarArrayNames.end();it++)
       {
-      scalarArrays.push_back(vtkFloatArray::SafeDownCast(pointData->GetArray(it->c_str())));
+      scalarArrays.push_back(vtkFloatArray::SafeDownCast(
+                               pointData->GetArray(it->c_str())));
       }
     float values[3] = {0, 0, 0};
     for(vtkIdType i=0;i<numberOfTuples;i++)
@@ -163,6 +167,8 @@ namespace
   }
 
 //-----------------------------------------------------------------------------
+// Given local ijk indices (in 0 to numberOfI, numberOfJ, numberOfK instead of
+// in WholeExtent, return the corresponding POP index.
   size_t GetPOPIndexFromGridIndices(
     int numDimensions, size_t* count, size_t* start, size_t* stride,
     int i, int j, int k)
@@ -179,6 +185,21 @@ namespace
     return iIndex + jIndex*count[1];
   }
 
+//-----------------------------------------------------------------------------
+// Given a point, compute the direction cosines assuming that the point
+// is also a vector starting from (0,0,0).
+  void ComputeDirectionCosines(const double point[3],
+                               double directionCosines[3][3])
+  {
+    memcpy(directionCosines[0], point, sizeof(double)*3);
+    // first direction is aligned with the radial direction, i.e. the one we want
+    vtkMath::Normalize(directionCosines[0]);
+    // the other 2 directions are arbitrarily set. i don't really care
+    // what those directions are as long as they're perpendicular
+    vtkMath::Perpendiculars(directionCosines[0], directionCosines[1],
+                            directionCosines[2], 0);
+  }
+
 } // end anonymous namespace
 
 vtkStandardNewMacro(vtkUnstructuredPOPReader);
@@ -193,8 +214,8 @@ vtkStandardNewMacro(vtkUnstructuredPOPReader);
     return 0; \
   } \
 }
-//============================================================================
 
+//============================================================================
 class vtkUnstructuredPOPReaderInternal
 {
 public:
@@ -216,9 +237,9 @@ vtkUnstructuredPOPReader::vtkUnstructuredPOPReader()
   this->SetNumberOfInputPorts(0);
   this->SetNumberOfOutputPorts(1);
   this->FileName = NULL;
+  this->OpenedFileName = NULL;
   this->Stride[0] = this->Stride[1] = this->Stride[2] = 1;
   this->NCDFFD = 0;
-  this->OpenedFileName = NULL;
   this->SelectionObserver = vtkCallbackCommand::New();
   this->SelectionObserver->SetCallback
     (&vtkUnstructuredPOPReader::SelectionModifiedCallback);
@@ -236,6 +257,7 @@ vtkUnstructuredPOPReader::vtkUnstructuredPOPReader()
     this->VOI[i*2+1] = -1;
     }
   this->SubsettingXMin = this->SubsettingXMax = false;
+  this->ReducedHeightResolution = false;
   this->VectorGrid = 0;
   this->VerticalVelocity = false;
 }
@@ -279,7 +301,7 @@ void vtkUnstructuredPOPReader::PrintSelf(ostream &os, vtkIndent indent)
   this->Internals->VariableArraySelection->PrintSelf(os, indent.GetNextIndent());
 }
 
-// NC_MAX_VAR_DIMS comes from the nc library
+//----------------------------------------------------------------------------
 bool vtkUnstructuredPOPReader::ReadMetaData(int wholeExtent[6])
 {
   if(this->FileName == NULL)
@@ -307,7 +329,7 @@ bool vtkUnstructuredPOPReader::ReadMetaData(int wholeExtent[6])
   // get number of variables from file
   int numberOfVariables;
   nc_inq_nvars(this->NCDFFD, &numberOfVariables);
-  int dimidsp[NC_MAX_VAR_DIMS];
+  int dimidsp[NC_MAX_VAR_DIMS];  // NC_MAX_VAR_DIMS comes from the nc library
   int dataDimension;
   size_t dimensions[4]; //dimension value
   this->Internals->VariableMap.resize(numberOfVariables);
@@ -364,6 +386,10 @@ bool vtkUnstructuredPOPReader::ReadMetaData(int wholeExtent[6])
         }
       }
     }
+  if(wholeExtent[4] != 0 || wholeExtent[5] != dimensions[0] - 1 || this->Stride[2] != 1)
+    {
+    this->ReducedHeightResolution = true;
+    }
 
   return true;
 }
@@ -389,7 +415,6 @@ int vtkUnstructuredPOPReader::RequestInformation(vtkInformation *request,
 }
 
 //----------------------------------------------------------------------------
-// Setting extents of the rectilinear grid
 int vtkUnstructuredPOPReader::RequestData(vtkInformation* request,
     vtkInformationVector** vtkNotUsed(inputVector),
     vtkInformationVector* outputVector  )
@@ -411,45 +436,24 @@ int vtkUnstructuredPOPReader::RequestData(vtkInformation* request,
   int numberOfPieces = outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_NUMBER_OF_PIECES());
   int numberOfGhostLevels = outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_NUMBER_OF_GHOST_LEVELS());
 
+  vtkNew<vtkUnstructuredGrid> tempGrid;
+  int retVal = this->ProcessGrid(tempGrid.GetPointer(), piece, numberOfPieces, numberOfGhostLevels);
+  vtkNew<vtkCleanUnstructuredGrid> cleanToGrid;
+  cleanToGrid->SetInput(tempGrid.GetPointer());
+  cleanToGrid->Update();
   // we use the follwing to get the output grid instead of this->GetOutput() since the
   // vtkInformation object passed in here may be different than the vtkInformation
   // object used in GetOutput() to get the grid pointer.
   vtkUnstructuredGrid* outputGrid = vtkUnstructuredGrid::SafeDownCast(
     outInfo->Get(vtkDataObject::DATA_OBJECT()));
-  int retVal = 0;
-  bool merge = true;
-  if(merge)
-    {
-    cerr << "WE ARE MERGING\n";
-    vtkNew<vtkUnstructuredGrid> tempGrid;
-    retVal = this->ProcessGrid(tempGrid.GetPointer(), piece, numberOfPieces, numberOfGhostLevels);
-    vtkNew<vtkCleanUnstructuredGrid> cleanToGrid;
-    cleanToGrid->SetInput(tempGrid.GetPointer());
-    cleanToGrid->Update();
-    outputGrid->ShallowCopy(cleanToGrid->GetOutput());
-    }
-  else
-    {
-    cerr << "WE ARE NOT MERGING\n";
-    retVal = this->ProcessGrid(outputGrid, piece, numberOfPieces, numberOfGhostLevels);
-    }
-
-  if(numberOfGhostLevels > 0)
-    {
-    cerr << "the number of GHOSTS is " << numberOfGhostLevels << endl;
-    outInfo->Set(vtkStreamingDemandDrivenPipeline::UPDATE_NUMBER_OF_GHOST_LEVELS(), numberOfGhostLevels);
-    }
-  else
-    {
-    cerr << "NO GHOSTS\n";
-    }
+  outputGrid->ShallowCopy(cleanToGrid->GetOutput());
 
   return retVal;
 }
 
 //----------------------------------------------------------------------------
 int vtkUnstructuredPOPReader::ProcessGrid(
-  vtkUnstructuredGrid* grid, int piece, int numberOfPieces, int & numberOfGhostLevels)
+  vtkUnstructuredGrid* grid, int piece, int numberOfPieces, int numberOfGhostLevels)
 {
   // Determine if the point data is going to be scalar or vector fields
   std::string fileName = this->FileName;
@@ -459,7 +463,6 @@ int vtkUnstructuredPOPReader::ProcessGrid(
   if(position != std::string::npos)
     {
     fileName.replace(position, 4, "VVEL");
-    cerr << "trying to open " << fileName << endl;
     int retVal = nc_open(fileName.c_str(), NC_NOWRITE, &netCDFFD);
     if (NC_NOERR != retVal )
       {
@@ -484,20 +487,17 @@ int vtkUnstructuredPOPReader::ProcessGrid(
       }
     }
   if(this->VectorGrid == 2 && this->VerticalVelocity == true &&
-     numberOfGhostLevels == 0)
+     numberOfPieces > 1)
     {
     // we need to compute gradients in order to compute the vertical
     // velocity component and to make sure that the we avoid partitioning
     // effects we add a level of ghosts.
-    numberOfGhostLevels = 1;
+    numberOfGhostLevels += 1;
     }
   int subExtent[6], wholeExtent[6];
   this->GetExtentInformation(piece, numberOfPieces, numberOfGhostLevels,
                              wholeExtent, subExtent);
 
-  cerr << "x whole extent " << wholeExtent[0] << " to " << wholeExtent[1] << endl
-       << "y whole extent " << wholeExtent[2] << " to " << wholeExtent[3] << endl
-       << "z whole extent " << wholeExtent[4] << " to " << wholeExtent[5] << endl;
   //setup extents for netcdf library to read the netcdf data file
   size_t start[]= {subExtent[4]*this->Stride[2], subExtent[2]*this->Stride[1],
                    subExtent[0]*this->Stride[0]};
@@ -613,50 +613,22 @@ int vtkUnstructuredPOPReader::ProcessGrid(
 
               if(count[0] < 2)
                 { // constant depth/logical z
-                for(int jj=4;jj<8;jj++)
-                  {
-                  if(pointIds[jj] >= grid->GetNumberOfPoints() || pointIds[jj] < 0)
-                    {
-                    vtkErrorMacro("this is the problem with id " << pointIds[jj] << " index " << jj);
-                    }
-                  }
                 grid->InsertNextCell(VTK_QUAD, 4, pointIds+4);
                 }
               else if(count[1] < 2)
                 { // constant latitude/logical y
                 pointIds[6] = pointIds[1];
                 pointIds[7] = pointIds[0];
-                for(int jj=4;jj<8;jj++)
-                  {
-                  if(pointIds[jj] >= grid->GetNumberOfPoints() || pointIds[jj] < 0)
-                    {
-                    vtkErrorMacro("this is the problem with id " << pointIds[jj] << " index " << jj);
-                    }
-                  }
                 grid->InsertNextCell(VTK_QUAD, 4, pointIds+4);
                 }
               else if(count[2] < 2)
                 { // constant longitude/logical x
                 pointIds[6] = pointIds[0];
                 pointIds[7] = pointIds[1];
-                for(int jj=4;jj<8;jj++)
-                  {
-                  if(pointIds[jj] >= grid->GetNumberOfPoints() || pointIds[jj] < 0)
-                    {
-                    vtkErrorMacro("this is the problem with id " << pointIds[jj] << " index " << jj);
-                    }
-                  }
                 grid->InsertNextCell(VTK_QUAD, 4, pointIds+4);
                 }
               else
                 {
-                for(int jj=0;jj<8;jj++)
-                  {
-                  if(pointIds[jj] >= grid->GetNumberOfPoints() || pointIds[jj] < 0)
-                    {
-                    vtkErrorMacro("this is the problem with id " << pointIds[jj] << " index " << jj);
-                    }
-                  }
                 grid->InsertNextCell(VTK_HEXAHEDRON, 8, pointIds);
                 }
               ix++;
@@ -692,23 +664,13 @@ int vtkUnstructuredPOPReader::ProcessGrid(
 
   // transfrom from logical tripolar coordinates to a sphere.  also transforms
   // any vector quantities
-  this->Transform(grid, start, count);
+  this->Transform(grid, start, count, wholeExtent, subExtent,
+                  numberOfGhostLevels, wrapped, piece, numberOfPieces);
 
-  int retVal = 1;
-  if(numberOfGhostLevels > 0)
-    {
-    retVal = this->BuildGhostInformation(
-      grid, numberOfGhostLevels, wholeExtent, subExtent, wrapped);
-    if(this->VectorGrid && this->VerticalVelocity)
-      {
-      this->ComputeVerticalVelocity(grid, wholeExtent, subExtent);
-      }
-    }
   return 1;
 }
 
 //----------------------------------------------------------------------------
-//following 5 functions are used for paraview user interface
 void vtkUnstructuredPOPReader::SelectionModifiedCallback(vtkObject*, unsigned long,
                                                    void* clientdata, void*)
 {
@@ -761,7 +723,8 @@ void vtkUnstructuredPOPReader::SetVariableArrayStatus(const char* name, int stat
 
 //-----------------------------------------------------------------------------
 bool vtkUnstructuredPOPReader::Transform(
-  vtkUnstructuredGrid* grid, size_t* start, size_t* count)
+  vtkUnstructuredGrid* grid, size_t* start, size_t* count, int* wholeExtent,
+  int* subExtent, int numberOfGhostLevels, int wrapped, int piece, int numberOfPieces)
 {
   if(this->VectorGrid != 1 && this->VectorGrid != 2)
     {
@@ -772,7 +735,6 @@ bool vtkUnstructuredPOPReader::Transform(
   int latlonFileId = 0;
   std::string gridFileName =
     vtksys::SystemTools::GetFilenamePath(this->FileName) + "/GRID.nc";
-  //cerr << "opening up GRID file " << gridFileName << endl;
   int retval = nc_open(gridFileName.c_str(), NC_NOWRITE, &latlonFileId);
   if (retval != NC_NOERR)//checks if read file error
     {
@@ -820,11 +782,9 @@ bool vtkUnstructuredPOPReader::Transform(
   nc_inq_dimlen(latlonFileId, dimensionIds[2], dimensions+2);
 
   std::vector<float> realHeight(dimensions[2]);
-  nc_get_vara_float(latlonFileId, varidp,
-                    zeros, &(dimensions[2]), &(realHeight[0]));
-
-  cerr << "DIMENSIONS: (" << dimensions[0] << ", " << dimensions[1] << ", " << dimensions[2] << ")" << endl;
-
+  ptrdiff_t stride = static_cast<ptrdiff_t>(this->Stride[2]);
+  nc_get_vars_float(latlonFileId, varidp,
+                    start, count, &stride, &(realHeight[0]));
 
   // the vector arrays that need to be manipulated
   std::vector<vtkFloatArray*> vectorArrays;
@@ -840,8 +800,7 @@ bool vtkUnstructuredPOPReader::Transform(
       }
     }
 
-  size_t rStride[2] = { (size_t)this->Stride[1],
-                        (size_t)this->Stride[0] };
+  size_t rStride[2] = { (size_t)this->Stride[1], (size_t)this->Stride[0] };
 
   vtkPoints* points = grid->GetPoints();
 
@@ -856,10 +815,11 @@ bool vtkUnstructuredPOPReader::Transform(
           {
           vtkErrorMacro("doooh");
           }
-        size_t latlonIndex = GetPOPIndexFromGridIndices(2, dimensions, start+1, rStride, i, j, k);
+        size_t latlonIndex = GetPOPIndexFromGridIndices(
+          2, dimensions, start+1, rStride, i, j, k);
         if(latlonIndex < 0 || latlonIndex >= dimensions[0]*dimensions[1])
           {
-          vtkErrorMacro("lat lon index doooooh");
+          vtkErrorMacro("Bad lat-lon index.");
           }
         double point[3];
         points->GetPoint(index, point);
@@ -952,67 +912,233 @@ bool vtkUnstructuredPOPReader::Transform(
       }
     }
 
-  //cerr << "counts are " << count[2] << " " << count[1] << " " << count[0] << endl;
+  bool retVal = this->BuildGhostInformation(
+    grid, numberOfGhostLevels, wholeExtent, subExtent, wrapped, piece, numberOfPieces);
+  if(this->VectorGrid && this->VerticalVelocity && this->ReducedHeightResolution == false)
+    {
+    this->ComputeVerticalVelocity(grid, wholeExtent, subExtent,
+                                  numberOfGhostLevels, latlonFileId);
+    if(vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses() > 1)
+      {
+      // the last layer of ghost cells was added in order to do the vertical velocity calculation.
+      // it needs to be removed now.
+      grid->RemoveGhostCells(numberOfGhostLevels);
+      }
+    }
 
   nc_close(latlonFileId);
-  return true;
+  return retVal;
 }
 
-namespace
+//-----------------------------------------------------------------------------
+// iterate over depth columns and then over the points in a depth column.
+// the iteration starts at the bottom cell and ends at the highest cell in the
+// column (consequently from a high id to a lower id).  this ignores non-fluid
+// cells.  To iterate over, do:
+// for(vtkIdType column=iter.BeginColumn();column!=iter.EndColumn();column=iter.NextColumn())
+//    for(int k=pointIterator.GetColumnBottomPointExtentIndex(true);
+//        k>=pointIterator.GetColumnTopPointExtentIndex(true);k--)
+//      vtkIdType id = iter.GetCurrentId(k); // get the current point id
+class VTKPointIterator
 {
-  // iterate over depth columns and then over the points in a depth column
-  class PointIterator
+public:
+  VTKPointIterator(int* wholeExtent, int *subExtent, int* stride,
+                   int latlonFileId)
   {
-  public:
-    PointIterator(int *subExtent)
-    {
-      this->CurrentColumn = 0;
-      this->CurrentColumnIndex = 0;
-      for(int i=0;i<6;i++)
-        {
-        this->SubExtent[i] = subExtent[i];
-        }
-    }
-    vtkIdType BeginColumn()
-    {
-      this->CurrentColumn = 0;
-      this->CurrentColumnIndex = 0;
-      return 0;
-    }
-    vtkIdType EndColumn()
-    {
-      return (this->SubExtent[1]-this->SubExtent[0])*(this->SubExtent[3]-this->SubExtent[2]);
-    }
-    vtkIdType NextColumn()
-    {
-      this->CurrentColumn++;
-      return this->CurrentColumn;
-    }
-    vtkIdType BeginColumnIndex()
-    {
-      this->CurrentColumnIndex = 0;
-      return this->CurrentColumn;
-    }
-    vtkIdType EndColumnIndex()
-    {
-      return this->SubExtent[5]-this->SubExtent[4];
-    }
-    vtkIdType NextColumnIndex()
-    {
-      this->CurrentColumnIndex++;
-      return this->CurrentColumnIndex;
-    }
-    vtkIdType GetCurrentId()
-    {
-      return this->CurrentColumn+this->EndColumn()*this->CurrentColumnIndex;
-    }
+    memcpy(this->WholeExtent, wholeExtent, sizeof(int)*6);
+    memcpy(this->SubExtent, subExtent, sizeof(int)*6);
 
-  private:
-    int CurrentColumn;
-    int CurrentColumnIndex;
-    int SubExtent[6];
-  };
-}
+    int varidp;
+    nc_inq_varid(latlonFileId, "KMT", &varidp);
+    int dimensionIds[2];
+    nc_inq_vardimid(latlonFileId, varidp, dimensionIds);
+    size_t zeros[2] = {0, 0};
+    nc_inq_dimlen(latlonFileId, dimensionIds[0], this->HorizontalDimensions);
+    nc_inq_dimlen(latlonFileId, dimensionIds[1], this->HorizontalDimensions+1);
+
+    // the index of the deepest cell to have fluid in it.
+    // i probably don't need this whole array
+    this->DeepestCellIndex.resize(this->HorizontalDimensions[0]*this->HorizontalDimensions[1]);
+    nc_get_vara_int(latlonFileId, varidp, zeros,
+                    this->HorizontalDimensions, &(this->DeepestCellIndex[0]));
+
+    memcpy(this->Stride, stride, sizeof(int)*3);
+    this->CurrentColumn = 0;
+  }
+  // initialize the total iteration and specify the beginning iteration value
+  // for the column
+  vtkIdType BeginColumn()
+  {
+    this->CurrentColumn = 0;
+    return this->CurrentColumn;
+  }
+  // return the number of columns
+  vtkIdType EndColumn()
+  {
+    return (this->SubExtent[1]-this->SubExtent[0]+1)*(this->SubExtent[3]-this->SubExtent[2]+1);
+  }
+  // increment the current column and reset the column index
+  vtkIdType NextColumn()
+  {
+    return ++this->CurrentColumn;
+  }
+
+  // Give the i and j extent indices of this column.  Returns
+  // false if the iterator is in a bad state.
+  bool GetCurrentColumnExtentIndices(int &iIndex, int& jIndex)
+  {
+    int iDimension = this->SubExtent[1]-this->SubExtent[0]+1;
+    int jDimension = this->SubExtent[3]-this->SubExtent[2]+1;
+    if( this->CurrentColumn >= iDimension*jDimension)
+      {
+      vtkGenericWarningMacro("Bad column state.");
+      return false;
+      }
+    iIndex = (this->CurrentColumn%iDimension) + this->SubExtent[0];
+    jIndex = (this->CurrentColumn/iDimension) + this->SubExtent[2];
+    return true;
+  }
+  // Given a pair of horizontal indices, set the current column
+  // iterator location. Returns true if successfull.
+  bool SetColumn(int iIndex, int jIndex)
+  {
+    if( iIndex < this->SubExtent[0] || iIndex > this->SubExtent[1] ||
+        jIndex < this->SubExtent[2] || jIndex > this->SubExtent[3] )
+      {
+      vtkGenericWarningMacro("Bad indices " << iIndex << " " << jIndex << " proc " <<
+                             vtkMultiProcessController::GetGlobalController()->GetLocalProcessId());
+      return false;
+      }
+    int iDimension = this->SubExtent[1]-this->SubExtent[0]+1;
+    this->CurrentColumn = iIndex-this->SubExtent[0] + (jIndex-this->SubExtent[2])*iDimension;
+    return true;
+  }
+  // Return whether or not the current column is a ghost point
+  // used by the reader only and removed before finishing request data.
+  bool IsColumnAReaderGhost()
+  {
+    int iIndex, jIndex;
+    if(this->GetCurrentColumnExtentIndices(iIndex, jIndex) == false)
+      { // this probably isn't exactly correct but we should treat this as a ghost
+      return true;
+      }
+    if( (this->SubExtent[0]+1 > iIndex) &&
+        (this->WholeExtent[0] != this->SubExtent[0]) )
+      {
+      return true;
+      }
+    if(this->SubExtent[1]-1 < iIndex &&
+       this->WholeExtent[1] != this->SubExtent[1])
+      {
+      return true;
+      }
+    if(this->SubExtent[2]+1 > jIndex &&
+       this->WholeExtent[2] != this->SubExtent[2])
+      {
+      return true;
+      }
+    if(this->SubExtent[3]-1 < jIndex &&
+       this->WholeExtent[3] != this->SubExtent[3])
+      {
+      return true;
+      }
+    return false;
+  }
+  // return the bottom (i.e. smallest radius) k extent index.
+  // includeReaderGhost specifies whether or not to include points
+  // that are ghosts that will be deleted after the depth computation
+  // is finished.
+  int GetColumnBottomPointExtentIndex(bool includeReaderGhost)
+  {
+    if(includeReaderGhost == true || this->SubExtent[5] == this->WholeExtent[5])
+      {
+      return this->SubExtent[5];
+      }
+    return this->SubExtent[5] - 1;
+  }
+  // return the top (i.e. largest radiues) k extent index.
+  // includeReaderGhost specifies whether or not to include points
+  // that are ghosts that will be deleted after the depth computation
+  // is finished.
+  int GetColumnTopPointExtentIndex(bool includeReaderGhost)
+  {
+    if(includeReaderGhost == true || this->SubExtent[4] == this->WholeExtent[4])
+      {
+      return this->SubExtent[4];
+      }
+    return this->SubExtent[4] + 1;
+  }
+  // get the k extent index of the point at the bottom
+  // of the ocean. this point may be on a different process.
+  int GetColumnOceanBottomExtentIndex()
+  {
+    size_t popIndex = this->GetPOPIndex();
+    return this->DeepestCellIndex[popIndex]-1;
+  }
+  // for the current column and passed in kIndex,
+  // return the point id for this grid. a returned value
+  // of -1 indicates a bad column index and/or kExtentIndex.
+  vtkIdType GetPointId(int kIndex)
+  {
+    if(kIndex < this->SubExtent[4] || kIndex > this->SubExtent[5])
+      {
+      return -1;
+      }
+    int iIndex, jIndex;
+    if(this->GetCurrentColumnExtentIndices(iIndex, jIndex) == false)
+      {
+      return -1;
+      }
+    int i = iIndex - this->SubExtent[0];
+    int j = jIndex - this->SubExtent[2];
+    int k = kIndex - this->SubExtent[4];
+    int iDimension = this->SubExtent[1]-this->SubExtent[0]+1;
+    int jDimension = this->SubExtent[3]-this->SubExtent[2]+1;
+    return i + j*iDimension + k*(iDimension*jDimension);
+  }
+
+  // return whether or not the column piece on this process
+  // includes the point at the bottom of the ocean.  this
+  // may not be unique for a given column. includeGhosts
+  // is only with respect to the column index.
+  bool ColumnPieceHasBottomPoint(bool includeReaderGhost)
+  {
+    int bottomIndex = this->GetColumnOceanBottomExtentIndex();
+    if(includeReaderGhost)
+      {
+      if(this->SubExtent[4]+1 > bottomIndex &&
+         this->SubExtent[4] != this->WholeExtent[4])
+        {
+        return false;
+        }
+      if(this->SubExtent[5]-1 < bottomIndex &&
+         this->SubExtent[5] != this->WholeExtent[5])
+        {
+        return false;
+        }
+      return true;
+      }
+    return (bottomIndex >= this->SubExtent[4] &&
+            bottomIndex <= this->SubExtent[5]);
+  }
+
+private:
+  size_t GetPOPIndex()
+  {
+    int iDimension = this->SubExtent[1]-this->SubExtent[0]+1;
+    int iIndex = this->CurrentColumn%iDimension;
+    int jIndex = this->CurrentColumn/iDimension;
+    size_t popIndex = (this->SubExtent[0]+iIndex)*this->Stride[0] +
+      (this->SubExtent[2]+jIndex)*this->Stride[1]*this->HorizontalDimensions[1];
+    return popIndex;
+  }
+  int CurrentColumn;
+  int SubExtent[6];
+  std::vector<int> DeepestCellIndex;
+  int Stride[3];
+  int WholeExtent[6];
+  size_t HorizontalDimensions[2];
+};
 
 //-----------------------------------------------------------------------------
 void vtkUnstructuredPOPReader::LoadPointData(
@@ -1028,21 +1154,28 @@ void vtkUnstructuredPOPReader::LoadPointData(
   scalars->SetName(arrayName);
   grid->GetPointData()->AddArray(scalars);
   scalars->Delete();
-}
-
-void ComputeDirectionCosines(const double point[3], double directionCosines[3][3])
-{
-  memcpy(directionCosines[0], point, sizeof(double)*3);
-  // first direction is aligned with the radial direction, i.e. the one we want
-  vtkMath::Normalize(directionCosines[0]);
-  // the other 2 directions are arbitrarily set. i don't really care
-  // what those directions are as long as they're perpendicular
-  vtkMath::Perpendiculars(directionCosines[0], directionCosines[1], directionCosines[2], 0);
+  size_t length = 0;
+  if(nc_inq_attlen(netCDFFD, varidp, "units", &length) == NC_NOERR)
+    {
+    if(length > 0)
+      {
+      std::string attribute(length, ' ');
+      nc_get_att_text(netCDFFD, varidp, "units", &attribute[0]);
+      if(attribute == "centimeter/s")
+        { // need to scale to meter/s
+        for(vtkIdType i=0;i<numberOfTuples;i++)
+          {
+          data[i] *= 0.01;
+          }
+        }
+      }
+    }
 }
 
 //-----------------------------------------------------------------------------
 void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
-  vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent)
+  vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent,
+  int numberOfGhostLevels, int latlonFileId)
 {
   vtkNew<vtkUnstructuredGrid> tempGrid;
   tempGrid->ShallowCopy(grid);
@@ -1053,21 +1186,22 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
   grid->ShallowCopy(gradientFilter->GetOutput());
 
   std::vector<double> dwdr(grid->GetNumberOfPoints()); // change in velocity in the radial direction
-  PointIterator pointIterator(subExtent);
+  VTKPointIterator pointIterator(wholeExtent, subExtent, this->Stride, latlonFileId);
   for(vtkIdType column=pointIterator.BeginColumn();column!=pointIterator.EndColumn();
       column=pointIterator.NextColumn())
     {
     // assuming a sphere, the direction cosines for each column is the same
     // so no need to recompute it if we iterate through this way.
-    vtkIdType pointId = pointIterator.GetCurrentId();
+    vtkIdType pointId = pointIterator.GetPointId(
+      pointIterator.GetColumnBottomPointExtentIndex(true));
     double point[3];
     grid->GetPoint(pointId, point);
     double directionCosines[3][3];
     ComputeDirectionCosines(point, directionCosines);
-    for(vtkIdType index=pointIterator.BeginColumnIndex();
-        index<pointIterator.EndColumnIndex();index=pointIterator.NextColumnIndex())
+    for(int k=pointIterator.GetColumnBottomPointExtentIndex(true);
+        k>=pointIterator.GetColumnTopPointExtentIndex(true);k--)
       {
-      pointId = pointIterator.GetCurrentId();
+      pointId = pointIterator.GetPointId(k);
       if(pointId < 0 || pointId >= grid->GetNumberOfPoints())
         {
         vtkErrorMacro("SCREWED this up!!!");  
@@ -1088,30 +1222,59 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
   // to integrate locally.  If this is in parallel, I'll go back later and
   // add in the values from integrations on other procs
 
-  std::vector<double> w(grid->GetNumberOfPoints()); // vertical velocity
+  // an array to keep track of the depth.  we only populate it if we need it
+  // since it requires file IO
+  std::vector<float> w_dep;
+
+  double dZero = 0;
+  std::vector<double> w(grid->GetNumberOfPoints(), dZero); // vertical velocity
   for(vtkIdType column=pointIterator.BeginColumn();column!=pointIterator.EndColumn();
       column=pointIterator.NextColumn())
     {
-    double integratedVelocity = 0; // assume no slip/zero velocity at the "bottom"
-    double lastPoint[3] = {0,0,0};
-    vtkIdType index=pointIterator.BeginColumnIndex();
-    vtkIdType pointId = pointIterator.GetCurrentId();
-    if(pointId < 0 || pointId >= grid->GetNumberOfPoints())
+    int oceanBottomExtentIndex = pointIterator.GetColumnOceanBottomExtentIndex();
+    int gridTopExtentIndex = pointIterator.GetColumnTopPointExtentIndex(true);
+    if(gridTopExtentIndex > oceanBottomExtentIndex)
       {
-      vtkErrorMacro("SCREWED this up!!!");  
-      continue;
+      continue; // don't need to integrate this column
       }
+    // we start from the first non-reader ghost cell since other processes
+    // will integrate up to that point and we add that in during the parallel
+    // communication
+    int gridBottomExtentIndex = pointIterator.GetColumnBottomPointExtentIndex(false);
+    int startExtentIndex = (oceanBottomExtentIndex < gridBottomExtentIndex ?
+                            oceanBottomExtentIndex : gridBottomExtentIndex);
+    // assume no slip/zero velocity at the "bottom".  the bottom is actually
+    // a half cell length below the lowest point.
+    double integratedVelocity = 0;
+    double lastPoint[3] = {0,0,0};
+    vtkIdType pointId = pointIterator.GetPointId(startExtentIndex);
     grid->GetPoint(pointId, lastPoint);
-    w[pointId] = integratedVelocity;
     double lastdwdr = dwdr[pointId];
-    for(index=pointIterator.NextColumnIndex();
-        index<pointIterator.EndColumnIndex();index=pointIterator.NextColumnIndex())
+    if(pointIterator.ColumnPieceHasBottomPoint(true) == true)
       {
-      if(pointId < 0 || pointId >= grid->GetNumberOfPoints())
-        {
-        vtkErrorMacro("SCREWED this up!!!");  
-        continue;
+      if(w_dep.size() == 0)
+        { // this process needs this array so we read it in now
+        int varidp;
+        nc_inq_varid(latlonFileId, "w_dep", &varidp);
+        int dimensionId;
+        nc_inq_vardimid(latlonFileId, varidp, &dimensionId);
+        size_t zero = 0;
+        size_t w_depDimension;
+        nc_inq_dimlen(latlonFileId, dimensionId, &w_depDimension);
+        w_dep.resize(w_depDimension);
+        nc_get_vara_float(latlonFileId, varidp, &zero, &w_depDimension, &(w_dep[0]));
         }
+      // assuming no partial cell depths, the bottom cell is only integrated
+      // over half of the distance.
+      float length = ( startExtentIndex < 2 ? 0 :
+                       .5*(w_dep[startExtentIndex] - w_dep[startExtentIndex-1]) );
+      integratedVelocity = lastdwdr*length;
+      }
+    w[pointId] = integratedVelocity;
+    for(int index=startExtentIndex-1;
+        index>=gridTopExtentIndex;index--)
+      {
+      pointId = pointIterator.GetPointId(index);
       double currentPoint[3];
       grid->GetPoint(pointId, currentPoint);
       double currentdwdr = dwdr[pointId];
@@ -1123,28 +1286,28 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
       lastdwdr = currentdwdr;
       }
     }
-  if(subExtent[4] != wholeExtent[4])
-    { // need to receive and adjust values
+  if(vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses() > 1)
+    {
+    this->CommunicateParallelVerticalVelocity(grid, wholeExtent, subExtent,
+                                              numberOfGhostLevels, pointIterator, &w[0]);
+    }
 
-    }
-  if(subExtent[5] != wholeExtent[5])
-    { // need to send to the next set of processes so they can adjust values
-    }
   // now w[] should have the proper values and we need to add them back in
   // to the point data array
   vtkDataArray* velocityArray = grid->GetPointData()->GetArray("velocity");
   for(vtkIdType column=pointIterator.BeginColumn();column!=pointIterator.EndColumn();
       column=pointIterator.NextColumn())
     {
-    vtkIdType pointId = pointIterator.GetCurrentId();
+    vtkIdType pointId = pointIterator.GetPointId(
+      pointIterator.GetColumnBottomPointExtentIndex(true));
     double direction[3];
     grid->GetPoint(pointId, direction);
     vtkMath::Normalize(direction);
-    for(vtkIdType index=pointIterator.BeginColumnIndex();
-        index<pointIterator.EndColumnIndex();index=pointIterator.NextColumnIndex())
+    for(int k=pointIterator.GetColumnBottomPointExtentIndex(true);
+        k>=pointIterator.GetColumnTopPointExtentIndex(true);k--)
       {
       double velocity[3];
-      vtkIdType pointId = pointIterator.GetCurrentId();
+      vtkIdType pointId = pointIterator.GetPointId(k);
       velocityArray->GetTuple(pointId, velocity);
       for(int i=0;i<3;i++)
         {
@@ -1157,8 +1320,218 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
 }
 
 //-----------------------------------------------------------------------------
+void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
+  vtkUnstructuredGrid* grid, int* wholeExtent,
+  int* subExtent, int numberOfGhostLevels, VTKPointIterator& pointIterator, double* w)
+{
+  if(wholeExtent[4] == subExtent[4] && wholeExtent[5] == subExtent[5])
+    {
+    // no communication necessary since this process has all the points
+    // in each of its vertical columns.
+    return;
+    }
+  vtkMPIController* controller = vtkMPIController::SafeDownCast(
+    vtkMultiProcessController::GetGlobalController());
+
+  if(subExtent[5] != wholeExtent[5])
+    { // process needs to receive data in order to finish its computation.
+    // first determine which procs to receive data from
+    std::map<int, int> sendingProcesses;
+    for(vtkIdType column=pointIterator.BeginColumn();column!=pointIterator.EndColumn();
+        column=pointIterator.NextColumn())
+      {
+      if(pointIterator.IsColumnAReaderGhost() == false &&
+         pointIterator.ColumnPieceHasBottomPoint(true) == false &&
+         pointIterator.GetColumnTopPointExtentIndex(true) < pointIterator.GetColumnOceanBottomExtentIndex())
+        {
+        int iIndex, jIndex;
+        pointIterator.GetCurrentColumnExtentIndices(iIndex, jIndex);
+        int kIndex = pointIterator.GetColumnBottomPointExtentIndex(false);
+        int sendingProc = this->GetPointOwnerPiece(
+          iIndex, jIndex, kIndex, controller->GetNumberOfProcesses(),
+          numberOfGhostLevels, wholeExtent);
+        sendingProcesses[sendingProc]++;
+        int indices[3] = {iIndex, jIndex, kIndex};
+        }
+      }
+    // now receive and process the data
+    for(std::map<int,int>::iterator it=sendingProcesses.begin();
+        it!=sendingProcesses.end();it++)
+      {
+      std::vector<int> iData(it->second*3);
+      std::vector<float> fData(it->second);
+      vtkMPICommunicator::Request iRequest, fRequest;
+      controller->NoBlockReceive(&iData[0], it->second*3, it->first, 4837, iRequest);
+      controller->NoBlockReceive(&fData[0], it->second, it->first, 4838, fRequest);
+      iRequest.Wait();
+      fRequest.Wait();
+      for(int i=0;i<it->second;i++)
+        {
+        pointIterator.SetColumn(iData[i*3], iData[i*3+1]);
+        for(int k=iData[i*3+2];k>=pointIterator.GetColumnTopPointExtentIndex(false);k--)
+          {
+          vtkIdType pointId = pointIterator.GetPointId(k);
+          w[pointId] += fData[i];
+          }
+        }
+      }
+    }
+
+  if(subExtent[4] != wholeExtent[4])
+    { // other processes are depending on information from this process
+    // a map from piece number/processId to information to be sent.
+    // this needs to be done after this process has fully updated it's information
+    std::map<vtkIdType, std::vector<int> > sendIndexInfo;
+    std::map<vtkIdType, std::vector<float> > sendValueInfo;
+    vtkNew<vtkIdList> pieceIds;
+    int numberOfPieces = controller->GetNumberOfProcesses();
+    for(vtkIdType column=pointIterator.BeginColumn();column!=pointIterator.EndColumn();
+        column=pointIterator.NextColumn())
+      {
+      if(pointIterator.IsColumnAReaderGhost() == false)
+        {
+        int iIndex, jIndex;
+        pointIterator.GetCurrentColumnExtentIndices(iIndex, jIndex);
+        int kIndex = pointIterator.GetColumnTopPointExtentIndex(true);
+        kIndex += 2*numberOfGhostLevels-1;
+        vtkIdType pointId = pointIterator.GetPointId(kIndex);
+        this->GetPiecesNeedingPoint(iIndex, jIndex, kIndex, numberOfPieces,
+                                    numberOfGhostLevels, wholeExtent,
+                                    pieceIds.GetPointer());
+        for(vtkIdType i=0;i<pieceIds->GetNumberOfIds();i++)
+          { // don't need to send to myself or if this column is all land
+          if(pieceIds->GetId(i) != controller->GetLocalProcessId() &&
+             kIndex < pointIterator.GetColumnOceanBottomExtentIndex() &&
+             this->GetPointOwnerPiece(iIndex, jIndex, kIndex, controller->GetNumberOfProcesses(), numberOfGhostLevels, wholeExtent) == controller->GetLocalProcessId())
+            {
+            vtkIdType pid = pieceIds->GetId(i);
+            int indices[3] = {iIndex, jIndex, kIndex};
+            std::copy(indices, indices+3, std::back_inserter(sendIndexInfo[pieceIds->GetId(i)]) );
+            sendValueInfo[pieceIds->GetId(i)].push_back(w[pointId]);
+            }
+          }
+        }
+      }
+    std::vector<vtkMPICommunicator::Request> requests;
+    for(std::map<vtkIdType, std::vector<int> >::iterator it=sendIndexInfo.begin();
+        it!=sendIndexInfo.end();it++)
+      {
+      requests.push_back(vtkMPICommunicator::Request());
+      controller->NoBlockSend(&(it->second[0]), static_cast<int>(it->second.size()),
+                              static_cast<int>(it->first), 4837, requests.back());
+      controller->NoBlockSend(&(sendValueInfo[it->first][0]), static_cast<int>(it->second.size()/3),
+                              static_cast<int>(it->first), 4838, requests.back());
+      }
+    for(std::vector<vtkMPICommunicator::Request>::iterator it=requests.begin();
+        it!=requests.end();it++)
+      {
+      it->Wait();
+      }
+    }
+}
+
+//-----------------------------------------------------------------------------
+int vtkUnstructuredPOPReader::GetPointOwnerPiece(
+  int iIndex, int jIndex, int kIndex, int numberOfPieces,
+  int numberOfGhostLevels, int* wholeExtent)
+{
+  if(iIndex < wholeExtent[0] || iIndex > wholeExtent[1] ||
+     jIndex < wholeExtent[2] || jIndex > wholeExtent[3] ||
+     kIndex < wholeExtent[4] || kIndex > wholeExtent[5] )
+    {
+    vtkWarningMacro("Bad indices");
+    return -1;
+    }
+  // there should be a better way to do this but at least this will work
+  // but may be dreadfully slow.  ACBAUER -- fix this!!!!
+  int subExtent[6];
+  for(int piece=0;piece<numberOfPieces;piece++)
+    {
+    if(this->GetExtentInformation(piece, numberOfPieces, numberOfGhostLevels,
+                                  wholeExtent, subExtent) == true)
+      {
+      // shrink the extent in the 'horizontal' direction just a bit
+      // because a point shouldn't be owned by pieces where the point
+      // is the last/reader ghost level
+      for(int i=0;i<2;i++)
+        {
+        if(subExtent[i*2] != wholeExtent[i*2])
+          {
+          subExtent[i*2]++;
+          }
+        if(subExtent[i*2+1] != wholeExtent[i*2+1])
+          {
+          subExtent[i*2+1]--;
+          }
+        }
+      if(iIndex >= subExtent[0] && iIndex <= subExtent[1] &&
+         jIndex >= subExtent[2] && jIndex <= subExtent[3] &&
+         kIndex == subExtent[4] +2*numberOfGhostLevels-1)
+        {
+        return piece;
+        }
+      }
+    }
+  vtkErrorMacro(<< iIndex << " " << jIndex << " " << kIndex
+                << " Problem finding owner piece "
+                << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId());
+  return -1;
+}
+
+//-----------------------------------------------------------------------------
+void vtkUnstructuredPOPReader::GetPiecesNeedingPoint(
+  int iIndex, int jIndex, int kIndex, int numberOfPieces, int numberOfGhostLevels,
+  int* wholeExtent, vtkIdList* pieceIds)
+{
+  pieceIds->Reset();
+  if(iIndex < wholeExtent[0] || iIndex > wholeExtent[1] ||
+     jIndex < wholeExtent[2] || jIndex > wholeExtent[3] ||
+     kIndex < wholeExtent[4] || kIndex > wholeExtent[5] )
+    {
+    vtkWarningMacro("Unexpected indices");
+    return;
+    }
+  // there should be a better way to do this but at least this will work
+  // but may be dreadfully slow.  ACBAUER -- fix this!!!!
+  int subExtent[6];
+  for(int piece=0;piece<numberOfPieces;piece++)
+    {
+    if(this->GetExtentInformation(piece, numberOfPieces, numberOfGhostLevels,
+                                  wholeExtent, subExtent) == true)
+      {
+      // shrink the extent in the 'horizontal' direction just a bit
+      // because a point shouldn't be owned by pieces where the point
+      // is the last/reader ghost level
+      for(int i=0;i<2;i++)
+        {
+        if(subExtent[i*2] != wholeExtent[i*2])
+          {
+          subExtent[i*2]++;
+          }
+        if(subExtent[i*2+1] != wholeExtent[i*2+1])
+          {
+          subExtent[i*2+1]--;
+          }
+        }
+      if(iIndex >= subExtent[0] && iIndex <= subExtent[1] &&
+         jIndex >= subExtent[2] && jIndex <= subExtent[3] &&
+         kIndex == subExtent[5]-1 ) // -1 is for ignoring reader ghost level
+        {
+        pieceIds->InsertNextId(static_cast<vtkIdType>(piece));
+        }
+      }
+    }
+  if(pieceIds->GetNumberOfIds() == 0)
+    {
+    vtkErrorMacro("Problem finding pieces needing " << iIndex << " " << jIndex << " " << kIndex
+                  << " " << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId());
+    }
+  return;
+}
+
+//-----------------------------------------------------------------------------
 bool vtkUnstructuredPOPReader::GetExtentInformation(
-  int piece, int numberOfPieces, int & numberOfGhostLevels,
+  int piece, int numberOfPieces, int numberOfGhostLevels,
   int* wholeExtent, int* subExtent)
 {
   if(this->ReadMetaData(wholeExtent) == false)
@@ -1173,7 +1546,6 @@ bool vtkUnstructuredPOPReader::GetExtentInformation(
   // we only split in the y and z topological directions to make
   // wrapping easier for topological y max.
   std::vector<int> splitPath;
-  int numberOfProcesses = vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses();
   int count = 0;
   int extents[2] = {wholeExtent[3]-wholeExtent[2], wholeExtent[5]-wholeExtent[4]};
   do
@@ -1189,7 +1561,7 @@ bool vtkUnstructuredPOPReader::GetExtentInformation(
       splitPath.push_back(2);
       }
     count = (count == 0 ? 1 : count*2);
-    } while(count < numberOfProcesses);
+    } while(count < numberOfPieces);
   extentTranslator->SetSplitPath(static_cast<int>(splitPath.size()), &(splitPath[0]));
 
   extentTranslator->SetWholeExtent(wholeExtent);
@@ -1198,15 +1570,18 @@ bool vtkUnstructuredPOPReader::GetExtentInformation(
   extentTranslator->PieceToExtent();
   extentTranslator->GetExtent(subExtent);
 
-//  vtkWarningMacro(<< getpid() << " " << piece << " " << numberOfPieces << " PPP||subextents are " << subExtent[0] << " " << subExtent[1] << " " << subExtent[2] << " " << subExtent[3] << " " << subExtent[4] << " " << subExtent[5]);
   return true;
 }
 
 //-----------------------------------------------------------------------------
 bool vtkUnstructuredPOPReader::BuildGhostInformation(
   vtkUnstructuredGrid* grid, int numberOfGhostLevels, int* wholeExtent,
-  int* subExtent, int wrapped)
+  int* subExtent, int wrapped, int piece, int numberOfPieces)
 {
+  int noGhostsSubExtent[6];
+  this->GetExtentInformation(piece, numberOfPieces, 0,
+                             wholeExtent, noGhostsSubExtent);
+
   if(numberOfGhostLevels == 0)
     {
     return true;
@@ -1227,12 +1602,12 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
   do  // k loop with at least 1 pass
     {
     int kGhostLevel = 0;
-    if(k < numberOfGhostLevels && subExtent[4] != wholeExtent[4])
+    if(k < numberOfGhostLevels && noGhostsSubExtent[4] != wholeExtent[4])
       {
       kGhostLevel = numberOfGhostLevels-k;
       }
     else if(k>=subExtent[5]-subExtent[4]-numberOfGhostLevels &&
-            subExtent[5] != wholeExtent[5])
+            noGhostsSubExtent[5] != wholeExtent[5])
       {
       kGhostLevel = k-subExtent[5]+subExtent[4]+numberOfGhostLevels+1;
       }
@@ -1240,12 +1615,12 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
     do // j loop with at least 1 pass
       {
       int jGhostLevel = 0;
-      if(j < numberOfGhostLevels && subExtent[2] != wholeExtent[2])
+      if(j < numberOfGhostLevels && noGhostsSubExtent[2] != wholeExtent[2])
         {
         jGhostLevel = numberOfGhostLevels-j;
         }
       else if(j>=subExtent[3]-subExtent[2]-numberOfGhostLevels &&
-              subExtent[3] != wholeExtent[3])
+              noGhostsSubExtent[3] != wholeExtent[3])
         {
         jGhostLevel = j-subExtent[3]+subExtent[2]+numberOfGhostLevels+1;
         }
@@ -1253,10 +1628,7 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
         static_cast<unsigned char>(std::max(kGhostLevel, jGhostLevel));
       // we never split in the logical x-direction so we'll never
       // need ghost cells in that direction
-      if( ! ((k>=numberOfGhostLevels || subExtent[4] == wholeExtent[4])
-             && (k<(subExtent[5]-subExtent[4]-numberOfGhostLevels) || subExtent[5] == wholeExtent[5]) &&
-             (j>=numberOfGhostLevels || subExtent[2] == wholeExtent[2]) &&
-             (j<(subExtent[3]-subExtent[2]-numberOfGhostLevels) || subExtent[3] == wholeExtent[3]) ) )
+      if( ghostLevel )
         {
         int i=0;
         do // i loop with at least 1 pass
@@ -1265,7 +1637,8 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
             k*std::max(actualXDimension,1)*std::max(subExtent[3]-subExtent[2],1);
           if(index < 0 || index >= grid->GetNumberOfCells())
             {
-            cerr << index << " CELL ghostlevel ERROR " << grid->GetNumberOfCells() << endl;
+            vtkErrorMacro(<< index << " CELL ghostlevel ERROR " <<
+                          grid->GetNumberOfCells());
             }
           else
             {
@@ -1281,7 +1654,6 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
     k++;
     }
   while (k<subExtent[5]-subExtent[4]);
-
 
   vtkUnsignedCharArray* pointGhostLevels = vtkUnsignedCharArray::New();
   pointGhostLevels->SetName("vtkGhostLevels");
@@ -1304,7 +1676,7 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
       kGhostLevel = numberOfGhostLevels-k;
       }
     else if(k>subExtent[5]-subExtent[4]-numberOfGhostLevels &&
-            subExtent[5] != wholeExtent[5])
+            noGhostsSubExtent[5] != wholeExtent[5])
       {
       kGhostLevel = k-subExtent[5]+subExtent[4]+numberOfGhostLevels;
       }
@@ -1317,7 +1689,7 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
         jGhostLevel = numberOfGhostLevels-j;
         }
       else if(j>subExtent[3]-subExtent[2]-numberOfGhostLevels &&
-              subExtent[3] != wholeExtent[3])
+              noGhostsSubExtent[3] != wholeExtent[3])
         {
         jGhostLevel = j-subExtent[3]+subExtent[2]+numberOfGhostLevels;
         }
@@ -1325,10 +1697,7 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
         static_cast<unsigned char>(std::max(kGhostLevel, jGhostLevel));
       // we never split in the logical x-direction so we'll never
       // need ghost cells in that direction
-      if( ! ((k>=numberOfGhostLevels || subExtent[4] == wholeExtent[4])
-             && (k<(subExtent[5]-subExtent[4]-numberOfGhostLevels) || subExtent[5] == wholeExtent[5]) &&
-             (j>=numberOfGhostLevels || subExtent[2] == wholeExtent[2]) &&
-             (j<(subExtent[3]-subExtent[2]-numberOfGhostLevels) || subExtent[3] == wholeExtent[3]) ) )
+      if( ghostLevel )
         {
         int i=0;
         do // i loop with at least 1 pass
@@ -1337,7 +1706,7 @@ bool vtkUnstructuredPOPReader::BuildGhostInformation(
             k*actualXDimension*(subExtent[3]-subExtent[2]+1);
           if(index < 0 || index >= grid->GetNumberOfPoints())
             {
-            cerr << "POINT ghostlevel ERROR\n";
+            vtkErrorMacro("POINT ghostlevel ERROR");
             }
           else
             {
