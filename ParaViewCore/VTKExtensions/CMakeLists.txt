@@ -402,6 +402,7 @@ TARGET_LINK_LIBRARIES(vtk${KIT}
   vtkCharts
   vtkChartsCS
   KWCommon
+  vtkNetCDF
   vtksys
   ${KIT_LIBS}
   ${PARAVIEW_HDF5_LIBRARIES}
