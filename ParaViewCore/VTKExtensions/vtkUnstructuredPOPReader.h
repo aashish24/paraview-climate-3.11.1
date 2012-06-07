@@ -34,13 +34,15 @@
 
 #include "vtkUnstructuredGridAlgorithm.h"
 
+#include <cstddef> // for ptrdiff_t
+
 class vtkCallbackCommand;
 class vtkDataArraySelection;
 class vtkIdList;
 class vtkUnstructuredPOPReaderInternal;
 class VTKPointIterator;
 
-class VTK_IO_EXPORT vtkUnstructuredPOPReader : public vtkUnstructuredGridAlgorithm
+class VTK_EXPORT vtkUnstructuredPOPReader : public vtkUnstructuredGridAlgorithm
 {
 public:
   vtkTypeMacro(vtkUnstructuredPOPReader,vtkUnstructuredGridAlgorithm);
@@ -196,8 +198,8 @@ protected:
   // communication to finish the vertical velocity integration
   // on each process.
   void CommunicateParallelVerticalVelocity(
-    vtkUnstructuredGrid* grid, int* wholeExtent, int* subExtent,
-    int numberOfGhostLevels, VTKPointIterator& pointIterator, double* w);
+    int* wholeExtent, int* subExtent, int numberOfGhostLevels,
+    VTKPointIterator& pointIterator, double* w);
 
   // Description:
   // Given ijk indices with respect to WholeExtent, return the

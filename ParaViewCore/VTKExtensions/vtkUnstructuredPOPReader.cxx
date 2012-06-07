@@ -46,6 +46,7 @@ PURPOSE.  See the above copyright notice for more information.
 #include <set>
 #include <string>
 #include <vector>
+#include <iterator>
 
 #include "vtkCleanUnstructuredGrid.h"
 
@@ -386,7 +387,8 @@ bool vtkUnstructuredPOPReader::ReadMetaData(int wholeExtent[6])
         }
       }
     }
-  if(wholeExtent[4] != 0 || wholeExtent[5] != dimensions[0] - 1 || this->Stride[2] != 1)
+  if(wholeExtent[4] != 0 || wholeExtent[5] != static_cast<int>(dimensions[0] - 1)
+     || this->Stride[2] != 1)
     {
     this->ReducedHeightResolution = true;
     }
@@ -817,7 +819,7 @@ bool vtkUnstructuredPOPReader::Transform(
           }
         size_t latlonIndex = GetPOPIndexFromGridIndices(
           2, dimensions, start+1, rStride, i, j, k);
-        if(latlonIndex < 0 || latlonIndex >= dimensions[0]*dimensions[1])
+        if(latlonIndex >= dimensions[0]*dimensions[1])
           {
           vtkErrorMacro("Bad lat-lon index.");
           }
@@ -874,8 +876,6 @@ bool vtkUnstructuredPOPReader::Transform(
           vals[1] = values[0] * (endPos[1] - startPos[1]) / norm;
           vals[2] = values[0] * (endPos[2] - startPos[2]) / norm;
 
-
-
           startIndex = latlonIndex;
           endIndex = latlonIndex+dimensions[1];
           if(start[1]+j*rStride[0] >= dimensions[0]-2)
@@ -883,8 +883,6 @@ bool vtkUnstructuredPOPReader::Transform(
             startIndex = latlonIndex-dimensions[1];
             endIndex = latlonIndex;
             }
-          vals[3];
-
           startLon = vtkMath::RadiansFromDegrees(realLongitude[startIndex]);
           startLat = vtkMath::RadiansFromDegrees(realLatitude[startIndex]);
 
@@ -1204,7 +1202,7 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
       pointId = pointIterator.GetPointId(k);
       if(pointId < 0 || pointId >= grid->GetNumberOfPoints())
         {
-        vtkErrorMacro("SCREWED this up!!!");  
+        vtkErrorMacro("Bad point id.");
         continue;
         }
       double gradient[3][3];
@@ -1288,8 +1286,8 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
     }
   if(vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses() > 1)
     {
-    this->CommunicateParallelVerticalVelocity(grid, wholeExtent, subExtent,
-                                              numberOfGhostLevels, pointIterator, &w[0]);
+    this->CommunicateParallelVerticalVelocity(
+      wholeExtent, subExtent, numberOfGhostLevels, pointIterator, &w[0]);
     }
 
   // now w[] should have the proper values and we need to add them back in
@@ -1307,7 +1305,7 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
         k>=pointIterator.GetColumnTopPointExtentIndex(true);k--)
       {
       double velocity[3];
-      vtkIdType pointId = pointIterator.GetPointId(k);
+      pointId = pointIterator.GetPointId(k);
       velocityArray->GetTuple(pointId, velocity);
       for(int i=0;i<3;i++)
         {
@@ -1319,10 +1317,11 @@ void vtkUnstructuredPOPReader::ComputeVerticalVelocity(
   grid->GetPointData()->RemoveArray("Gradients");
 }
 
+#ifdef PARAVIEW_USE_MPI
 //-----------------------------------------------------------------------------
 void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
-  vtkUnstructuredGrid* grid, int* wholeExtent,
-  int* subExtent, int numberOfGhostLevels, VTKPointIterator& pointIterator, double* w)
+  int* wholeExtent, int* subExtent,
+  int numberOfGhostLevels, VTKPointIterator& pointIterator, double* w)
 {
   if(wholeExtent[4] == subExtent[4] && wholeExtent[5] == subExtent[5])
     {
@@ -1351,7 +1350,6 @@ void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
           iIndex, jIndex, kIndex, controller->GetNumberOfProcesses(),
           numberOfGhostLevels, wholeExtent);
         sendingProcesses[sendingProc]++;
-        int indices[3] = {iIndex, jIndex, kIndex};
         }
       }
     // now receive and process the data
@@ -1404,7 +1402,6 @@ void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
              kIndex < pointIterator.GetColumnOceanBottomExtentIndex() &&
              this->GetPointOwnerPiece(iIndex, jIndex, kIndex, controller->GetNumberOfProcesses(), numberOfGhostLevels, wholeExtent) == controller->GetLocalProcessId())
             {
-            vtkIdType pid = pieceIds->GetId(i);
             int indices[3] = {iIndex, jIndex, kIndex};
             std::copy(indices, indices+3, std::back_inserter(sendIndexInfo[pieceIds->GetId(i)]) );
             sendValueInfo[pieceIds->GetId(i)].push_back(w[pointId]);
@@ -1429,6 +1426,15 @@ void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
       }
     }
 }
+#else // #ifdef PARAVIEW_USE_MPI
+//-----------------------------------------------------------------------------
+void vtkUnstructuredPOPReader::CommunicateParallelVerticalVelocity(
+  int* vtkNotUsed(wholeExtent), int* vtkNotUsed(subExtent),
+  int vtkNotUsed(numberOfGhostLevels),
+  VTKPointIterator& vtkNotUsed(pointIterator), double* vtkNotUsed(w) )
+{
+}
+#endif
 
 //-----------------------------------------------------------------------------
 int vtkUnstructuredPOPReader::GetPointOwnerPiece(
