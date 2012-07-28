@@ -178,6 +178,7 @@ vtkPolyLine.cxx
 vtkPolyPlane.cxx
 vtkPolyVertex.cxx
 vtkProcessObject.cxx
+vtkProjectSphereFilter.cxx
 vtkPropAssembly.cxx
 vtkPyramid.cxx
 vtkQuad.cxx

@@ -24,6 +24,7 @@ CREATE_TEST_SOURCELIST(Tests ${KIT}CxxTests.cxx
   TestPointLocators.cxx
   TestPolyDataRemoveCell.cxx
   TestPolygon.cxx
+  TestProjectSphereFilter.cxx
   TestSelectionSubtract.cxx
   TestTreeBFSIterator.cxx
   TestTriangle.cxx

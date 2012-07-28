@@ -70,6 +70,7 @@ vtkPOutlineCornerFilter.cxx
 vtkPOutlineFilter.cxx
 vtkPPolyDataNormals.cxx
 vtkPProbeFilter.cxx
+vtkPProjectSphereFilter.cxx
 vtkProcess.cxx
 vtkProcessGroup.cxx
 vtkProcessIdScalars.cxx
