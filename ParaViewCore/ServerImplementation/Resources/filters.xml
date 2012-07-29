@@ -4256,6 +4256,31 @@ The Transform filter allows you to specify the position, size, and orientation o
    </SourceProxy>
 
    <!-- ==================================================================== -->
+   <SourceProxy name="ProjectSphereFilter" class="vtkProjectSphereFilter"
+    label="Project Sphere">
+    <Documentation
+       long_help="A filter to 'unroll' a sphere. The unroll longitude is -180."
+       short_help="A filter to 'unroll' a sphere.">
+       ProjectSphereFilter is a filter to unroll a sphere. The unroll longitude is -180.
+    </Documentation>
+    <InputProperty
+       name="Input"
+       command="SetInputConnection">
+          <ProxyGroupDomain name="groups">
+            <Group name="sources"/>
+            <Group name="filters"/>
+          </ProxyGroupDomain>
+          <DataTypeDomain name="input_type">
+            <DataType value="vtkPointSet"/>
+          </DataTypeDomain>
+          <Documentation>
+            This property specifies the input to the Transform filter.
+          </Documentation>
+     </InputProperty>
+   <!-- End ProjectSphereFilter -->
+   </SourceProxy>
+
+   <!-- ==================================================================== -->
    <SourceProxy name="TriangleFilter" class="vtkTriangleFilter"
      label="Triangulate">
      <Documentation

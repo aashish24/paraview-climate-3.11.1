@@ -136,6 +136,7 @@
   <Proxy group="filters" name="ProbePoint" />
   <Proxy group="filters" name="ProcessIdScalars" />
   <Proxy group="filters" name="ProgrammableFilter" />
+  <Proxy group="filters" name="ProjectSphereFilter" />
   <Proxy group="filters" name="PVConnectivityFilter" />
   <Proxy group="filters" name="PythonCalculator" />
   <Proxy group="filters" name="QuadraturePointInterpolator" />
