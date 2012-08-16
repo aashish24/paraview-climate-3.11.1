@@ -72,7 +72,7 @@ public:
     Clear          = QItemSelectionModel::Clear,
     Select         = QItemSelectionModel::Select,
     Deselect       = QItemSelectionModel::Deselect, 
-    ClearAndSelect = Clear | Select
+    ClearAndSelect =  static_cast<int>(Clear) | static_cast<int>(Select)
   };
   Q_DECLARE_FLAGS(SelectionFlags, SelectionFlag)
 
