@@ -7331,5 +7331,22 @@
    <!-- End plot3d reader-->
  </SourceProxy>
 
+  <SourceProxy name="MOCReader" class="vtkMOCReader">
+    <Documentation>
+      Reader for MOC output files.
+    </Documentation>
+
+    <StringVectorProperty name="FileName"
+                          command="SetFileName"
+                          number_of_elements="1">
+      <FileListDomain name="files"/>
+    </StringVectorProperty>
+
+    <Hints>
+      <ReaderFactory extensions="moc" file_description="MOC file"/>
+    </Hints>
+
+   </SourceProxy>
+
   </ProxyGroup>
 </ServerManagerConfiguration>
