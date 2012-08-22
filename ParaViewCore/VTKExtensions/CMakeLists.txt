@@ -75,6 +75,7 @@ SET (Kit_SRCS
   vtkMergeCompositeDataSet.cxx
   vtkMinMax.cxx
   vtkMPICompositeManager.cxx
+  vtkMOCReader.cxx
   vtkMultiProcessControllerHelper.cxx
   vtkOrderedCompositeDistributor.cxx
   vtkParallelSerialWriter.cxx
