@@ -708,7 +708,6 @@ int vtkMOCReader::RequestInformation(vtkInformation *vtkNotUsed(request),
 int vtkMOCReader::CanReadFile(const char* fname )
 {
   // return 1 for success, return 0 for failure
-  vtkWarningMacro("testing read file!");
   MOCInfo mocInfo;
   return this->ParseHeader(fname, &mocInfo);
 }
@@ -1335,15 +1334,17 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
 
   // these arrays determine the coordinate positions of the grid
   vtkNew<vtkFloatArray> x_coords;
+  x_coords->SetNumberOfTuples(ext[1]-ext[0]+1);
   for(int i=ext[0]; i<=ext[1]; i++)
     {
-    x_coords->InsertNextValue(lat_mht(i));
+    x_coords->SetValue(i-ext[0], lat_mht(i));
     }
 
   vtkNew<vtkFloatArray> y_coords;
+  y_coords->SetNumberOfTuples(ext[3]-ext[2]+1);
   for(int i=ext[2]; i<=ext[3]; i++)
     {
-    y_coords->InsertNextValue(depth(i));
+    y_coords->SetValue(i-ext[2], depth(i));
     }
 
   vtkNew<vtkFloatArray> z_coords;
@@ -1356,17 +1357,18 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
 
   // TODO: change the array names
   // copy output. remember to only copy the part we want.
-  int numPoints = (ext[1]+1) * (ext[3]+1) * (ext[5]+1);
   if(mocInfo.do_global)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_global");
-    data->Allocate(numPoints);
+    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
       for(int i=ext[0]; i<=ext[1]; i++)
         {
-        data->InsertNextValue(psi(i, j, 0));
+        data->SetValue(counter, psi(i, j, 0));
+        counter++;
         }
       }
     grid->GetPointData()->AddArray(data.GetPointer());
@@ -1376,12 +1378,14 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_atl");
-    data->Allocate(numPoints);
+    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
       for(int i=ext[0]; i<=ext[1]; i++)
         {
-        data->InsertNextValue(psi(i, j, 1));
+        data->SetValue(counter, psi(i, j, 1));
+        counter++;
         }
       }
     grid->GetPointData()->AddArray(data.GetPointer());
@@ -1394,12 +1398,14 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_indopac");
-    data->Allocate(numPoints);
+    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
       for(int i=ext[0]; i<=ext[1]; i++)
         {
-        data->InsertNextValue(psi(i, j, 2));
+        data->SetValue(counter, psi(i, j, 2));
+        counter++;
         }
       }
     grid->GetPointData()->AddArray(data.GetPointer());
@@ -1604,8 +1610,9 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
                        Matrix1DFloat& lats, int ny, Matrix2DFloat& psi,
                        int* ext3D, int* real_ext3D, int imt, int jmt)
 {
-  int i, j, k;
-  int ii, jj, local_jj, true_jj;
+  // need to initialize these variables since on some processes
+  // they may not get set before they're used
+  int jj = VTK_INT_MAX, local_jj = VTK_INT_MAX, true_jj = VTK_INT_MAX;
 
   // calculates the meridional overturning circulation
   Matrix2DFloat work(imt, jmt);
@@ -1613,24 +1620,23 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
 
   vtkMultiProcessController* controller =
     vtkMultiProcessController::GetGlobalController();
-  int numprocs = controller->GetNumberOfProcesses();
   int rank = controller->GetLocalProcessId();
 
   // initialize psi array
-  for(i=0; i<mocInfo->km*ny; i++)
+  for(int i=0; i<mocInfo->km*ny; i++)
     {
     psi(i) = 0.0;
     }
-  for(k=0; k<mocInfo->km; k++)
+  for(int k=0; k<mocInfo->km; k++)
     {
     psi0(k) = 0.0;
     }
 
   // find j index of southernmost ocean point in basin
   bool found = false;
-  for(j=1; j<jmt-1; j++)
+  for(int j=1; j<jmt-1; j++)
     {
-    for(i=1; i<imt-1; i++)
+    for(int i=1; i<imt-1; i++)
       {
       if(kmtb(i,j) != 0)
         {
@@ -1673,40 +1679,40 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // the latitude jj-1, from depths k to km.
   // everyone computes a local psi0 if necessary, then a reduce is done
   // to get correct psi0. only process 0 will have correct psi0.
-  j = local_jj-1;
+  //int j = local_jj-1; not used since local_jj may still be VTK_INT_MAX
   if(jj == true_jj)
     {
-    for(i=1; i<imt-1; i++)
+    for(int i=1; i<imt-1; i++)
       {
-      work(i,j) = -dz(mocInfo->km-1) * v(i,j,mocInfo->km-1) * dxu(i,j);
+      work(i,local_jj-1) = -dz(mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
       }
 
     psi0(mocInfo->km-1) = 0.0;
-    for(i=1; i<imt-1; i++)
+    for(int i=1; i<imt-1; i++)
       {
-      int j2 = cshift(j, 1, jmt);
-      if(kmtb(i,j) == 0 && kmtb(i, j2) > 0)
+      int j2 = cshift(local_jj-1, 1, jmt);
+      if(kmtb(i,local_jj-1) == 0 && kmtb(i, j2) > 0)
         {
-        psi0(mocInfo->km-1) += work(i,j);
+        psi0(mocInfo->km-1) += work(i,local_jj-1);
         }
       }
     }
 
-  for(k=mocInfo->km-1; k>=1; k--)
+  for(int k=mocInfo->km-1; k>=1; k--)
     {
     if(jj == true_jj)
       {
-      for(i=1; i<imt-1; i++)
+      for(int i=1; i<imt-1; i++)
         {
-        work(i,j) = -dz(k-1) * v(i,j,k-1) * dxu(i,j);
+        work(i,local_jj-1) = -dz(k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
         }
 
-      for(i=1; i<imt-1; i++)
+      for(int i=1; i<imt-1; i++)
         {
-        int j2 = cshift(j, 1, jmt);
-        if(kmtb(i,j) == 0 && kmtb(i, j2) > 0)
+        int j2 = cshift(local_jj-1, 1, jmt);
+        if(kmtb(i,local_jj-1) == 0 && kmtb(i, j2) > 0)
           {
-          psi0(k-1) += work(i,j);
+          psi0(k-1) += work(i,local_jj-1);
           }
         }
       }
@@ -1715,7 +1721,8 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   Matrix1DFloat tempArray(mocInfo->km);
   controller->Reduce(psi0.GetData(), tempArray.GetData(), mocInfo->km,
                      vtkCommunicator::SUM_OP, 0);
-  for(k=0; k<mocInfo->km; k++)
+
+  for(int k=0; k<mocInfo->km; k++)
     {
     psi0(k) = tempArray(k);
     }
@@ -1724,21 +1731,21 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // psi(k,j) holds the moc value of depth k and lat j
   // compute my local moc
   std::vector<moc_point_t> points(imt*jmt);
-  for(k=0; k<mocInfo->km; k++)
+  for(int k=0; k<mocInfo->km; k++)
     {
     // first scan through all points of the layer and find all valid points
     // which are not land. record the latitude of the point as well as its
     // work value.
     int npoints = 0;     // number of points at this layer
     int k2 = k+1;  // the actual depth value that should be used
-    for(jj=1; jj<jmt-1; jj++)
+    for(int j=1; j<jmt-1; j++)
       {
-      for(ii=1; ii<imt-1; ii++)
+      for(int i=1; i<imt-1; i++)
         {
-        if(k2 <= kmtb(ii,jj))
+        if(k2 <= kmtb(i,j))
           {
-          points[npoints].work = w(ii,jj,k) * tarea(ii,jj);
-          points[npoints].lat = tLat(ii, jj);
+          points[npoints].work = w(i,j,k) * tarea(i,j);
+          points[npoints].lat = tLat(i, j);
           npoints++;
           }
         }
@@ -1753,7 +1760,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     // the points at the point where we left off before.
     int index = 0;  // the current place of the points array
                     // indicates the first element that has not been read yet.
-    for(j=0; j<ny; j++)
+    for(int j=0; j<ny; j++)
       {
       psi(k,j) = 0.0;
       if(j > 0)
@@ -1773,53 +1780,26 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // use a tree structure to send local mocs to parent node.
   // composite mocs from children and then send to parent.
   // final moc is gathered at the root, process 0.
-
-  // determine parent and children in binary tree.
-  // used for compositing mocs together
-  int parent = (rank-1) / 2;
-  int child[2];
-  int numChildren = 0;
-  if((rank+1) * 2 - 1 < numprocs)
-    {
-    child[0] = (rank+1) * 2 - 1;
-    numChildren++;
-    }
-  if((rank+1) * 2 < numprocs)
-    {
-    child[1] = (rank+1) * 2;
-    numChildren++;
-    }
-
-  // receive moc from children, and sum up with my moc
-  if(numChildren > 0)
-    {
-    Matrix2DFloat psi_child(mocInfo->km, ny);
-    for(i=0; i<numChildren; i++)
-      {
-      controller->Receive(psi_child.GetData(), ny*mocInfo->km, child[i], 0);
-      for(j=0; j<ny*mocInfo->km; j++)
-        {
-        psi(j) += psi_child(j);
-        }
-      }
-    }
-
-  // send my moc to parent
-  if(rank > 0)
-    {
-    controller->Send(psi.GetData(), ny*mocInfo->km, parent, 0);
-    }
+  Matrix2DFloat psi_temp(mocInfo->km, ny);
+  controller->Reduce(psi.GetData(), psi_temp.GetData(), ny*mocInfo->km, vtkCommunicator::SUM_OP, 0);
 
   // at this point process 0 should have the accumulated moc,
   // perform some more processing to get final moc.
   if(rank == 0)
     {
+    for(int j=0; j<ny; j++)
+      {
+      for(int k=0; k<mocInfo->km; k++)
+        {
+        psi(k,j) = psi_temp(k,j);
+        }
+      }
     // add in the baseline of the southernmost latitude
-    for(j=0; j<ny; j++)
+    for(int j=0; j<ny; j++)
       {
       if(lats(j) >= southern_lat)
         {
-        for(k=0; k<mocInfo->km; k++)
+        for(int k=0; k<mocInfo->km; k++)
           {
           psi(k,j) += psi0(k);
           }
@@ -1827,23 +1807,23 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       }
 
     // smooth grid-point noise over y
-    for(j=1; j<ny-1; j++)
+    for(int j=1; j<ny-1; j++)
       {
-      for(k=0; k<mocInfo->km; k++)
+      for(int k=0; k<mocInfo->km; k++)
         {
         psi(k,j) = 0.25*(psi(k,j-1) + psi(k,j+1)) + 0.5*psi(k,j);
         }
       }
 
     // normalize to Sv
-    for(i=0; i<mocInfo->km*ny; i++)
+    for(int i=0; i<mocInfo->km*ny; i++)
       {
       psi(i) *= 1e-12;
       }
 
     float special_value = -1e34;
     // replace any zeroes with the special value
-    for(i=0; i<mocInfo->km*ny; i++)
+    for(int i=0; i<mocInfo->km*ny; i++)
       {
       if(psi(i) == 0.0)
         {
