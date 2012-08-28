@@ -166,9 +166,7 @@ def WriteImages(filename, currentTimeStep, currentTime, views):
 def WriteFiles(currentTimeStep, currentTime, writers):
     for writer in writers:
         originalfilename = writer.FileName
-        basefilename = os.path.splitext(writer.FileName)[0]
-        filenameextension = os.path.splitext(writer.FileName)[1]
-        fname = basefilename + "_t" + str(currentTimeStep) + filenameextension
+        fname = originalfilename.replace("%%t", str(currentTimeStep))
         writer.FileName = fname
         writer.UpdatePipeline(currentTime)
         writer.FileName = originalfilename
@@ -188,6 +186,7 @@ def CreateReader(ctor, args, fileInfo):
     CheckReader(reader)
     import glob
     files = glob.glob(fileInfo)
+    files.sort() # assume there is a logical ordering of the filenames that corresponds to time ordering
     reader.FileName = files
     for a in args:
         s = "reader."+a

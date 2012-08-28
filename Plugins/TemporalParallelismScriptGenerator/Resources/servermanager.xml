@@ -17,7 +17,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.pvti">
+        default_values="filename_%t.pvti">
      </StringVectorProperty>
 
      <Hints>
@@ -47,7 +47,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.pvtr">
+        default_values="filename_%t.pvtr">
      </StringVectorProperty>
 
      <Hints>
@@ -77,7 +77,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.pvts">
+        default_values="filename_%t.pvts">
      </StringVectorProperty>
 
      <Hints>
@@ -107,7 +107,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.pvtp">
+        default_values="filename_%t.pvtp">
      </StringVectorProperty>
 
      <Hints>
@@ -137,7 +137,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.pvtu">
+        default_values="filename_%t.pvtu">
      </StringVectorProperty>
 
      <Hints>
@@ -167,7 +167,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.vtm">
+        default_values="filename_%t.vtm">
      </StringVectorProperty>
 
      <Hints>
@@ -197,7 +197,7 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename.vth">
+        default_values="filename_%t.vth">
      </StringVectorProperty>
 
      <Hints>
