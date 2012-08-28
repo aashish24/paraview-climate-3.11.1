@@ -17,14 +17,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.pvti">
+        default_values="filename.pvti">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -53,14 +47,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.pvtr">
+        default_values="filename.pvtr">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -89,14 +77,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.pvts">
+        default_values="filename.pvts">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -125,14 +107,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.pvtp">
+        default_values="filename.pvtp">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -161,14 +137,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.pvtu">
+        default_values="filename.pvtu">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -197,14 +167,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.vtm">
+        default_values="filename.vtm">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->
@@ -233,14 +197,8 @@
 
       <StringVectorProperty name="FileName"
         number_of_elements="1"
-        default_values="filename_%t.vth">
+        default_values="filename.vth">
      </StringVectorProperty>
-
-      <IntVectorProperty name="WriteFrequency"
-        number_of_elements="1"
-        default_values="1">
-        <IntRangeDomain min="1" />
-      </IntVectorProperty>
 
      <Hints>
       <!-- TODO: this doesn't work yet -->

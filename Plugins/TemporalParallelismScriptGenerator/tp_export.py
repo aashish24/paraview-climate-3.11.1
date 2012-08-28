@@ -2,87 +2,60 @@
 export_rendering = %1
 
 # string->string map with key being the proxyname while value being the
-# simulation input name.
-simulation_input_map = { %2 };
+# file name on the system the generated python script is to be run on.
+reader_input_map = { %2 };
 
+# not yet used
 image_file_name = '%3'
 
-image_write_frequency = %4
+# the number of processes working together on a single time step
+timeCompartmentSize = %4
 
-# This is map of lists of write frequencies. This is used to populate the
-# RequestDataDescription() method so that grids are requested only when needed.
-write_frequencies = {}
+# the name of the Python script to be outputted
+scriptFileName = "%5"
+
 
 # we do the views last and only if export_rendering is true
 view_proxies = []
 
-for key in simulation_input_map.values():
-    write_frequencies[key] = []
-
-def cp_locate_simulation_inputs(proxy):
-    if hasattr(proxy, "cpSimulationInput"):
-        return [ proxy.cpSimulationInput ]
-
-    input_proxies = []
-    for property in smtrace.servermanager.PropertyIterator(proxy):
-        if property.IsA("vtkSMInputProperty"):
-            ip = smtrace.servermanager.InputProperty(proxy, property)
-            input_proxies = input_proxies + ip[:]
-
-    simulation_inputs = []
-    for input in input_proxies:
-        cur_si = cp_locate_simulation_inputs(input.SMProxy)
-        for cur in cur_si:
-            if not cur in simulation_inputs:
-                simulation_inputs.append(cur)
-    return simulation_inputs
-
-
-def cp_locate_simulation_inputs_for_view(view_proxy):
-    reprProp = smtrace.servermanager.ProxyProperty(view_proxy, view_proxy.GetProperty("Representations"))
-    reprs = reprProp[:]
-    all_sim_inputs = []
-    for repr in reprs:
-        sim_inputs = cp_locate_simulation_inputs(repr)
-        all_sim_inputs = all_sim_inputs + sim_inputs
-    return all_sim_inputs
-
-def cp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
-    global write_frequencies, simulation_input_map, export_rendering, view_proxies
-    if info.ProxyName in simulation_input_map.keys():
-        # mark this proxy as a simulation input to make it easier to locate the
-        # simulation input for the writers.
-        info.Proxy.cpSimulationInput = simulation_input_map[info.ProxyName]
-        return ('CreateProducer',\
-          [ 'datadescription', '\"%s\"' % (simulation_input_map[info.ProxyName]) ], '')
+# this method replaces construction of proxies with methods
+# that will work on the remote machine
+def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
+    global reader_input_map, export_rendering, view_proxies
+    if info.ProxyName in reader_input_map.keys():
+        # mark this proxy as a reader input to make it easier to locate the
+        # reader input for the writers.
+        info.Proxy.tpReaderInput = reader_input_map[info.ProxyName]
+        # take out the guiName argument if it exists
+        newArgs = []
+        import re
+        for arg in ctorArgs:
+            if re.match("^FileName", arg) == None and re.match("^guiName", arg) == None:
+                newArgs.append(arg)
+        newArgs = [ctorMethod, newArgs, "\"%s\"" % info.Proxy.tpReaderInput]
+        ctorMethod = "CreateReader"
+        extraCtorCommands = "timeSteps = GetActiveSource().TimestepValues"
+        return (ctorMethod, newArgs, extraCtorCommands)
     # handle writers.
     proxy = info.Proxy
     if proxy.GetXMLGroup() == 'views' and export_rendering:
         view_proxies.append(proxy)
 
     if not proxy.GetHints() or \
-      not proxy.GetHints().FindNestedElementByName("CoProcessing"):
+      not proxy.GetHints().FindNestedElementByName("TemporalParallelism"):
         return (ctorMethod, ctorArgs, extraCtorCommands)
     # this is a writer we are dealing with.
-    xmlElement = proxy.GetHints().FindNestedElementByName("CoProcessing")
+    xmlElement = proxy.GetHints().FindNestedElementByName("TemporalParallelism")
     xmlgroup = xmlElement.GetAttribute("group")
     xmlname = xmlElement.GetAttribute("name")
     pxm = smtrace.servermanager.ProxyManager()
     writer_proxy = pxm.GetPrototypeProxy(xmlgroup, xmlname)
     ctorMethod =  \
       smtrace.servermanager._make_name_valid(writer_proxy.GetXMLLabel())
-    write_frequency = proxy.GetProperty("WriteFrequency").GetElement(0)
     ctorArgs = [ctorMethod, \
-                "\"%s\"" % proxy.GetProperty("FileName").GetElement(0),\
-                write_frequency]
+                "\"%s\"" % proxy.GetProperty("FileName").GetElement(0)]
     ctorMethod = "CreateWriter"
 
-    # Locate which simulation input this write is connected to, if any. If so,
-    # we update the write_frequencies datastructure accordingly.
-    sim_inputs = cp_locate_simulation_inputs(proxy)
-    for sim_input_name in sim_inputs:
-        if not write_frequency in write_frequencies[sim_input_name]:
-            write_frequencies[sim_input_name].append(write_frequency)
     return (ctorMethod, ctorArgs, '')
 
 try:
@@ -95,7 +68,7 @@ except:
 smtrace.start_trace(CaptureAllProperties=True, UseGuiName=True)
 
 # update trace globals.
-smtrace.trace_globals.proxy_ctor_hook = staticmethod(cp_hook)
+smtrace.trace_globals.proxy_ctor_hook = staticmethod(tp_hook)
 smtrace.trace_globals.trace_output = []
 
 # Get list of proxy lists
@@ -112,127 +85,143 @@ smtrace.append_trace()
 # Stop trace and print it to the console
 smtrace.stop_trace()
 
-
-for view_proxy in view_proxies:
-    # Locate which simulation input this write is connected to, if any. If so,
-    # we update the write_frequencies datastructure accordingly.
-    sim_inputs = cp_locate_simulation_inputs_for_view(view_proxy)
-    for sim_input_name in sim_inputs:
-        if not image_write_frequency in write_frequencies[sim_input_name]:
-            write_frequencies[sim_input_name].append(image_write_frequency)
-    #write_frequencies['input'].append(image_write_frequency)
-
 output_contents = """
 try: paraview.simple
 except: from paraview.simple import *
 
-cp_writers = []
+import sys
+import os
+import paraview
 
-def RequestDataDescription(datadescription):
-    "Callback to populate the request for current timestep"
-    timestep = datadescription.GetTimeStep()
+# trying to import the library where I can specify the global and subcontrollers
+try:
+    import libvtkParallelPython as vtkParallel # requires LD_LIBRARY_PATH being properly set
+except ImportError:
+    import vtkParallelPython as vtkParallel # for a static build, i.e. jaguarpf, use this instead and don't worry about LD_LIBRARY_PATH
 
-%s
+paraview.options.batch = True # this may not be necessary
+paraview.simple._DisableFirstRenderCameraReset()
 
-def DoCoProcessing(datadescription):
-    "Callback to do co-processing for current timestep"
-    global cp_writers
-    cp_writers = []
-    timestep = datadescription.GetTimeStep()
+def CreateTimeCompartments(globalController, timeCompartmentSize):
+    if globalController.GetNumberOfProcesses() == 1:
+        print 'single process'
+        return
+    elif globalController.GetNumberOfProcesses() %% timeCompartmentSize != 0:
+        print 'number of processes must be an integer multiple of time compartment size'
+        return
+    elif timeCompartmentSize == globalController.GetNumberOfProcesses():
+        return globalController
 
-%s
+    gid = globalController.GetLocalProcessId()
+    timeCompartmentGroupId = int (gid / timeCompartmentSize )
+    newController = globalController.PartitionController(timeCompartmentGroupId, gid %% timeCompartmentSize)
+    # must unregister if the reference count is greater than 1
+    if newController.GetReferenceCount() > 1:
+        newController.UnRegister(None)
 
-    for writer in cp_writers:
-        if timestep %% writer.cpFrequency == 0:
-            writer.FileName = writer.cpFileName.replace("%%t", str(timestep))
-            writer.UpdatePipeline()
+    #print gid, timeCompartmentGroupId, gid %% timeCompartmentSize
+    print gid, ' of global comm is ', newController.GetLocalProcessId()
+    globalController.SetGlobalController(newController)
+    return newController
 
-    if timestep %% %s == 0:
-        renderviews = servermanager.GetRenderViews()
-        imagefilename = "%s"
-        for view in range(len(renderviews)):
-            fname = imagefilename.replace("%%v", str(view))
-            fname = fname.replace("%%t", str(timestep))
-            WriteImage(fname, renderviews[view])
+def CheckReader(reader):
+    if hasattr(reader, "FileName") == False:
+        print "ERROR: Don't know how to set file name for ", reader.SMProxy.GetXMLName()
+        sys.exit(-1)
 
-    # explicitly delete the proxies -- we do it this way to avoid problems with prototypes
-    tobedeleted = GetProxiesToDelete()
-    while len(tobedeleted) > 0:
-        Delete(tobedeleted[0])
-        tobedeleted = GetProxiesToDelete()
+    if hasattr(reader, "TimestepValues") == False:
+        print "ERROR: ", reader.SMProxy.GetXMLName(), " doesn't have time information"
+        sys.exit(-1)
 
-def GetProxiesToDelete():
-    iter = servermanager.vtkSMProxyIterator()
-    iter.Begin()
-    tobedeleted = []
-    while not iter.IsAtEnd():
-      if iter.GetGroup().find("prototypes") != -1:
-         iter.Next()
-         continue
-      proxy = servermanager._getPyProxy(iter.GetProxy())
-      proxygroup = iter.GetGroup()
-      iter.Next()
-      if proxygroup != 'timekeeper' and proxy != None and proxygroup.find("pq_helper_proxies") == -1 :
-          tobedeleted.append(proxy)
+def CreateControllers(timeCompartmentSize):
+    pm = paraview.servermanager.vtkProcessModule.GetProcessModule()
+    globalController = pm.GetGlobalController()
+    if timeCompartmentSize > globalController.GetNumberOfProcesses():
+        timeCompartmentSize = globalController.GetNumberOfProcesses()
 
-    return tobedeleted
+    temporalController = CreateTimeCompartments(globalController, timeCompartmentSize)
+    return globalController, temporalController, timeCompartmentSize
 
-def CreateProducer(datadescription, gridname):
-  "Creates a producer proxy for the grid"
-  if not datadescription.GetInputDescriptionByName(gridname):
-    raise RuntimeError, "Simulation input name '%%s' does not exist" %% gridname
-  grid = datadescription.GetInputDescriptionByName(gridname).GetGrid()
-  producer = PVTrivialProducer()
-  producer.GetClientSideObject().SetOutput(grid)
-  if grid.IsA("vtkImageData") == True or grid.IsA("vtkStructuredGrid") == True or grid.IsA("vtkRectilinearGrid") == True:
-    extent = datadescription.GetInputDescriptionByName(gridname).GetWholeExtent()
-    producer.WholeExtent= [ extent[0], extent[1], extent[2], extent[3], extent[4], extent[5] ]
+currentTimeStep = -1
+def UpdateCurrentTimeStep(globalController, timeCompartmentSize):
+    global currentTimeStep
+    if currentTimeStep == -1:
+        currentTimeStep = globalController.GetLocalProcessId() / timeCompartmentSize
+        return currentTimeStep
 
-  producer.UpdatePipeline()
-  return producer
+    numTimeStepsPerIteration = globalController.GetNumberOfProcesses() / timeCompartmentSize
+    currentTimeStep = currentTimeStep + numTimeStepsPerIteration
+    return currentTimeStep
+
+def WriteImages(filename, currentTimeStep, currentTime, views):
+    basefilename = os.path.splitext(filename)[0]
+    filenameextension = os.path.splitext(filename)[1]
+    viewCount = 0
+    for view in views:
+        view.ViewTime = currentTime
+        fname = basefilename + "_v" + str(viewCount) + "_t" + str(currentTimeStep) + filenameextension
+        WriteImage(fname, renderView)
+        viewCount += 1
+
+def WriteFiles(currentTimeStep, currentTime, writers):
+    for writer in writers:
+        originalfilename = writer.FileName
+        basefilename = os.path.splitext(writer.FileName)[0]
+        filenameextension = os.path.splitext(writer.FileName)[1]
+        fname = basefilename + "_t" + str(currentTimeStep) + filenameextension
+        writer.FileName = fname
+        writer.UpdatePipeline(currentTime)
+        writer.FileName = originalfilename
+
+def IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, writers, views, imageFileName):
+    currentTimeStep = UpdateCurrentTimeStep(globalController, timeCompartmentSize)
+    while currentTimeStep < len(timeSteps):
+        print globalController.GetLocalProcessId(), " is working on ", currentTimeStep
+        WriteImages(imageFileName, currentTimeStep, timeSteps[currentTimeStep], views)
+        WriteFiles(currentTimeStep, timeSteps[currentTimeStep], writers)
+        currentTimeStep = UpdateCurrentTimeStep(globalController, timeCompartmentSize)
 
 
-def CreateWriter(proxy_ctor, filename, freq):
-    global cp_writers
-    writer = proxy_ctor()
+def CreateReader(ctor, args, fileInfo):
+    "Creates a reader, checks if it can be used, and sets the filenames"
+    reader = ctor()
+    CheckReader(reader)
+    import glob
+    files = glob.glob(fileInfo)
+    reader.FileName = files
+    for a in args:
+        s = "reader."+a
+        exec (s)
+
+    return reader
+
+tp_writers = []
+def CreateWriter(ctor, filename):
+    global tp_writers
+    writer = ctor()
     writer.FileName = filename
-    writer.add_attribute("cpFrequency", freq)
-    writer.add_attribute("cpFileName", filename)
-    cp_writers.append(writer)
+    tp_writers.append(writer)
     return writer
+
+# ==================== end of specialized temporal parallelism sections ==================
+
+timeCompartmentSize = %s
+globalController, temporalController, timeCompartmentSize = CreateControllers(timeCompartmentSize)
+
+%s
+
+views = [] # empty for now
+
+IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, tp_writers, views, "/home/acbauer/image.png")
 """
 
-timestep_expression = """
-    input_name = '%s'
-    if %s :
-        datadescription.GetInputDescriptionByName(input_name).AllFieldsOn()
-        datadescription.GetInputDescriptionByName(input_name).GenerateMeshOn()
-    else:
-        datadescription.GetInputDescriptionByName(input_name).AllFieldsOff()
-        datadescription.GetInputDescriptionByName(input_name).GenerateMeshOff()
-"""
-
-do_coprocessing = ""
+pipeline_trace = ""
 for original_line in smtrace.trace_globals.trace_output:
     for line in original_line.split("\n"):
-        do_coprocessing += "    " + line + "\n";
+        pipeline_trace += line + "\n";
 
-request_data_description = ""
-for sim_input in write_frequencies:
-    freqs = write_frequencies[sim_input]
+outFile = open(scriptFileName, 'w')
 
-    if len(freqs) == 0:
-        continue
-    freqs.sort()
-    condition_str = "(timestep % " + " == 0) or (timestep % ".join(map(str, freqs)) + " == 0)"
-    request_data_description += timestep_expression % (sim_input, condition_str)
-
-
-fileName = "%5"
-outFile = open(fileName, 'w')
-if image_write_frequency < 1:
-    image_write_frequency = 1
-
-outFile.write(output_contents % (request_data_description, do_coprocessing, image_write_frequency, image_file_name))
+outFile.write(output_contents % (timeCompartmentSize, pipeline_trace))
 outFile.close()
 

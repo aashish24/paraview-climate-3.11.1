@@ -182,7 +182,7 @@ pqTPExportStateWizard::pqTPExportStateWizard(
   this->NumberOfViews = smModel->getNumberOfItems<pqRenderView*>();
   if(this->NumberOfViews > 1)
     {
-    this->Internals->imageFileName->setText("image_%v_%t.png");
+    this->Internals->imageFileName->setText("image_%v.png");
     }
   QObject::connect(
     this->Internals->imageFileName, SIGNAL(editingFinished()),
@@ -262,10 +262,6 @@ void pqTPExportStateWizard::updateImageFileName()
     {
     fileName.insert(fileName.lastIndexOf("."), "_%v");
     }
-  if(fileName.contains("%t") == 0)
-    {
-    fileName.insert(fileName.lastIndexOf("."), "_%t");
-    }
 
   this->Internals->imageFileName->setText(fileName);
 }
@@ -316,7 +312,7 @@ bool pqTPExportStateWizard::validateCurrentPage()
            proxyManager->GetProxy("sources", proxyManager->GetProxyName("sources", i))))
         {
         vtkPVXMLElement* coProcessingHint = proxy->GetHints();
-        if(coProcessingHint && coProcessingHint->FindNestedElementByName("CoProcessing"))
+        if(coProcessingHint && coProcessingHint->FindNestedElementByName("TemporalParallelism"))
           {
           haveSomeWriters = true;
           }
@@ -386,19 +382,22 @@ bool pqTPExportStateWizard::validateCurrentPage()
     return true;
     }
 
-  QString sim_inputs_map;
+  // mapping from readers and their filenames on the current machine
+  // to the filenames on the remote machine
+  QString reader_inputs_map;
   for (int cc=0; cc < this->Internals->nameWidget->rowCount(); cc++)
     {
     QTableWidgetItem* item0 = this->Internals->nameWidget->item(cc, 0);
     QTableWidgetItem* item1 = this->Internals->nameWidget->item(cc, 1);
-    sim_inputs_map +=
+    reader_inputs_map +=
       QString(" '%1' : '%2',").arg(item0->text()).arg(item1->text());
     }
   // remove last ","
-  sim_inputs_map.chop(1);
+  reader_inputs_map.chop(1);
 
+  int timeCompartmentSize = 2; // hard-coded for now
   QString command =
-    QString(tp_export_py).arg(export_rendering).arg(sim_inputs_map).arg(image_file_name).arg(image_write_frequency).arg(filename);
+    QString(tp_export_py).arg(export_rendering).arg(reader_inputs_map).arg(image_file_name).arg(timeCompartmentSize).arg(filename);
 
   dialog->runString(command);
   return true;
