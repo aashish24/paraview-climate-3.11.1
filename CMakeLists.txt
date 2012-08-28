@@ -10,6 +10,10 @@ PROJECT(ParaView)
 
 INCLUDE(Utilities/Git/Git.cmake)
 
+SET(ParaView_CMAKE_DIR "${ParaView_SOURCE_DIR}/CMake")
+SET (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${ParaView_CMAKE_DIR};${ParaView_SOURCE_DIR}/VTK/CMake")
+message("${CMAKE_MODULE_PATH}")
+
 IF(CMAKE_CROSSCOMPILING)
   FIND_PACKAGE(ParaView3CompileTools REQUIRED)
 ENDIF(CMAKE_CROSSCOMPILING)
@@ -132,6 +136,13 @@ IF (PARAVIEW_USE_MPI)
 ENDIF (PARAVIEW_USE_MPI)
 
 #########################################################################
+SET(PARAVIEW_USE_GNU_R OFF CACHE BOOL "Build ParaView with R support")
+SET(VTK_USE_GNU_R ${PARAVIEW_USE_GNU_R} CACHE INTERNAL "Build VTK with R support" FORCE)
+IF(PARAVIEW_USE_GNU_R)
+  FIND_PACKAGE(R REQUIRED)
+ENDIF(PARAVIEW_USE_GNU_R)
+
+#########################################################################
 # Force Infovis support on
 SET(VTK_USE_INFOVIS ON CACHE BOOL "Build VTK with Infovis Support" FORCE)
 MARK_AS_ADVANCED(VTK_USE_INFOVIS)
@@ -232,9 +243,6 @@ SET (dynamicHeaders)
 # It also adds the VTK directories
 SET(VTK_MAKE_INSTANTIATOR       "${ParaView_SOURCE_DIR}/VTK/CMake")
 SET(VTKCS_CONFIG_DIR            "${ParaView_SOURCE_DIR}/Utilities/VTKClientServer/CMake")
-
-SET(ParaView_CMAKE_DIR "${ParaView_SOURCE_DIR}/CMake")
-SET (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${ParaView_CMAKE_DIR})
 
 # used in ParaViewPlugins.cmake
 SET(ParaView_QT_DIR ${ParaView_SOURCE_DIR}/Qt)
