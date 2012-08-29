@@ -113,6 +113,7 @@ SET (TESTS_WITH_BASELINES
   ${CMAKE_CURRENT_SOURCE_DIR}/XYChart.xml
   ${CMAKE_CURRENT_SOURCE_DIR}/XYHistogram.xml
   ${CMAKE_CURRENT_SOURCE_DIR}/ZLibXDMF.xml
+  ${CMAKE_CURRENT_SOURCE_DIR}/MOCReader2.xml
   #  ${CMAKE_CURRENT_SOURCE_DIR}/XYBarChart.xml
 )
 
@@ -152,6 +153,7 @@ SET (XYChart_BREAK TRUE)
 SET (XYHistogram_BREAK TRUE)
 
 SET(ExtractLevel_BREAK TRUE)
+SET(MOCReader2_BREAK TRUE)
 
 
 # Add image threshold overrides for tests.
