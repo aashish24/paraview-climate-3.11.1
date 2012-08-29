@@ -44,9 +44,10 @@ paraview_build_optional_plugin(H5PartReader "Reader for *.h5part files" H5PartRe
 paraview_build_optional_plugin(AdiosReader "Reader for *.bp files based on Adios" AdiosReader OFF)
 IF(PARAVIEW_BUILD_QT_GUI)
   paraview_build_optional_plugin(CoProcessingScriptGenerator "Plugin for creating python coprocessing scripts" CoProcessingScriptGenerator OFF)
+  paraview_build_optional_plugin(TemporalParallelismScriptGenerator "Plugin for creating python temporal parallelism scripts" TemporalParallelismScriptGenerator ON)
   paraview_build_optional_plugin(VRPNPlugin "Virtual Reality Private Network (VRPN) tracker" VRPN OFF)
   paraview_build_optional_plugin(VRUIPlugin "Virtual Reality User Interface (VRUI) tracker" VRUI OFF)
-  
+
   # We do not include VisTrails source in our repo for Licensing reasons. If the directory is manually copied into Plugins, build it.
   IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/VisTrails/CMakeLists.txt)
     paraview_build_optional_plugin(VisTrailsPlugin "VisTrailsPlugin" VisTrails ON)
@@ -74,13 +75,13 @@ ENDIF (EXISTS "${PARAVIEW_EXTERNAL_PLUGINS_FILE}")
 SET (PARAVIEW_EXTERNAL_PLUGIN_DIRS "" CACHE STRING
   "';' separated paths to additional plugin directories to be included in build process.")
 MARK_AS_ADVANCED(PARAVIEW_EXTERNAL_PLUGIN_DIRS)
-  
+
 FOREACH (external_plugin_dir ${PARAVIEW_EXTERNAL_PLUGIN_DIRS})
   set (plugin_name)
   get_filename_component(plugin_name ${external_plugin_dir} NAME)
   paraview_build_optional_plugin(${plugin_name}
     "${plugin_name} (External Plugin)" ${external_plugin_dir} ON)
-ENDFOREACH () 
+ENDFOREACH ()
 
 write_plugins_file()
 write_static_plugins_init_file()
