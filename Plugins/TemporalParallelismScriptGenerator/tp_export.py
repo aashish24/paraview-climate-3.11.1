@@ -5,8 +5,8 @@ export_rendering = %1
 # file name on the system the generated python script is to be run on.
 reader_input_map = { %2 };
 
-# not yet used
-image_file_name = '%3'
+# list of views along with a file name and magnification flag
+screenshot_info = {%3}
 
 # the number of processes working together on a single time step
 timeCompartmentSize = %4
@@ -14,14 +14,10 @@ timeCompartmentSize = %4
 # the name of the Python script to be outputted
 scriptFileName = "%5"
 
-
-# we do the views last and only if export_rendering is true
-view_proxies = []
-
 # this method replaces construction of proxies with methods
 # that will work on the remote machine
 def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
-    global reader_input_map, export_rendering, view_proxies
+    global reader_input_map, export_rendering
     if info.ProxyName in reader_input_map.keys():
         # mark this proxy as a reader input to make it easier to locate the
         # reader input for the writers.
@@ -36,11 +32,15 @@ def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
         ctorMethod = "CreateReader"
         extraCtorCommands = "timeSteps = GetActiveSource().TimestepValues"
         return (ctorMethod, newArgs, extraCtorCommands)
-    # handle writers.
     proxy = info.Proxy
+    # handle views
     if proxy.GetXMLGroup() == 'views' and export_rendering:
-        view_proxies.append(proxy)
+        proxyName = servermanager.ProxyManager().GetProxyName("views", proxy)
+        ctorArgs = [ ctorMethod, "\"%s\"" % screenshot_info[proxyName][0], \
+                         screenshot_info[proxyName][1], "tp_views" ]
+        return ("CreateView", ctorArgs, extraCtorCommands)
 
+    # handle writers.
     if not proxy.GetHints() or \
       not proxy.GetHints().FindNestedElementByName("TemporalParallelism"):
         return (ctorMethod, ctorArgs, extraCtorCommands)
@@ -53,7 +53,7 @@ def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
     ctorMethod =  \
       smtrace.servermanager._make_name_valid(writer_proxy.GetXMLLabel())
     ctorArgs = [ctorMethod, \
-                "\"%s\"" % proxy.GetProperty("FileName").GetElement(0)]
+                "\"%s\"" % proxy.GetProperty("FileName").GetElement(0), "tp_writers" ]
     ctorMethod = "CreateWriter"
 
     return (ctorMethod, ctorArgs, '')
@@ -153,15 +153,11 @@ def UpdateCurrentTimeStep(globalController, timeCompartmentSize):
     currentTimeStep = currentTimeStep + numTimeStepsPerIteration
     return currentTimeStep
 
-def WriteImages(filename, currentTimeStep, currentTime, views):
-    basefilename = os.path.splitext(filename)[0]
-    filenameextension = os.path.splitext(filename)[1]
-    viewCount = 0
+def WriteImages(currentTimeStep, currentTime, views):
     for view in views:
+        filename = view.tpFileName.replace("%%t", str(currentTimeStep))
         view.ViewTime = currentTime
-        fname = basefilename + "_v" + str(viewCount) + "_t" + str(currentTimeStep) + filenameextension
-        WriteImage(fname, renderView)
-        viewCount += 1
+        WriteImage(filename, view, Magnification=view.tpMagnification)
 
 def WriteFiles(currentTimeStep, currentTime, writers):
     for writer in writers:
@@ -171,14 +167,13 @@ def WriteFiles(currentTimeStep, currentTime, writers):
         writer.UpdatePipeline(currentTime)
         writer.FileName = originalfilename
 
-def IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, writers, views, imageFileName):
+def IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, writers, views):
     currentTimeStep = UpdateCurrentTimeStep(globalController, timeCompartmentSize)
     while currentTimeStep < len(timeSteps):
         print globalController.GetLocalProcessId(), " is working on ", currentTimeStep
-        WriteImages(imageFileName, currentTimeStep, timeSteps[currentTimeStep], views)
+        WriteImages(currentTimeStep, timeSteps[currentTimeStep], views)
         WriteFiles(currentTimeStep, timeSteps[currentTimeStep], writers)
         currentTimeStep = UpdateCurrentTimeStep(globalController, timeCompartmentSize)
-
 
 def CreateReader(ctor, args, fileInfo):
     "Creates a reader, checks if it can be used, and sets the filenames"
@@ -194,14 +189,21 @@ def CreateReader(ctor, args, fileInfo):
 
     return reader
 
-tp_writers = []
-def CreateWriter(ctor, filename):
-    global tp_writers
+def CreateWriter(ctor, filename, tp_writers):
     writer = ctor()
     writer.FileName = filename
     tp_writers.append(writer)
     return writer
 
+def CreateView(proxy_ctor, filename, magnification, tp_views):
+    view = proxy_ctor()
+    view.add_attribute("tpFileName", filename)
+    view.add_attribute("tpMagnification", magnification)
+    tp_views.append(view)
+    return view
+
+tp_writers = []
+tp_views = []
 # ==================== end of specialized temporal parallelism sections ==================
 
 timeCompartmentSize = %s
@@ -209,9 +211,7 @@ globalController, temporalController, timeCompartmentSize = CreateControllers(ti
 
 %s
 
-views = [] # empty for now
-
-IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, tp_writers, views, "/home/acbauer/image.png")
+IterateOverTimeSteps(globalController, timeCompartmentSize, timeSteps, tp_writers, tp_views)
 """
 
 pipeline_trace = ""

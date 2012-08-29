@@ -35,6 +35,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QWizard>
 #include <QString>
 
+class pqView;
+
 class pqTPExportStateWizard : public QWizard
 {
   Q_OBJECT
@@ -50,19 +52,53 @@ protected slots:
   void updateAddRemoveButton();
   void onAdd();
   void onRemove();
-  void updateImageFileName();
-  void updateImageFileNameExtension(const QString&);
+  void incrementView();
+  void decrementView();
 
 private:
   Q_DISABLE_COPY(pqTPExportStateWizard)
 
   class pqInternals;
   pqInternals* Internals;
-  unsigned int NumberOfViews;
+  int CurrentView;
   friend class pqTPExportStateWizardPage2;
   friend class pqTPExportStateWizardPage3;
 };
 
+#include "ui_ImageOutputInfo.h"
+
+class pqImageOutputInfo : public QWidget
+{
+  Q_OBJECT
+  typedef QWidget Superclass;
+public:
+  pqImageOutputInfo(
+    QWidget *parentObject, Qt::WindowFlags parentFlags, pqView* view, QString& viewName);
+
+  void setupScreenshotInfo();
+
+  pqView* getView()
+  {
+    return this->View;
+  }
+
+  QString getImageFileName()
+  {
+    return this->Info.imageFileName->displayText();
+  }
+
+  int getMagnification()
+  {
+    return this->Info.imageMagnification->value();
+  }
+
+public slots:
+  void updateImageFileName();
+  void updateImageFileNameExtension(const QString&);
+
+private:
+  Q_DISABLE_COPY(pqImageOutputInfo)
+  Ui::ImageOutputInfo Info;
+  pqView* View;
+};
 #endif
-
-

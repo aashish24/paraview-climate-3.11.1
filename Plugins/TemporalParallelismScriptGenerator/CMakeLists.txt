@@ -32,7 +32,8 @@ SET (TP_RESOURCES
   Resources/Writers.xml)
 
 SET (UI_RESOURCES
-  Resources/ExportStateWizard.ui)
+  Resources/ExportStateWizard.ui
+  Resources/ImageOutputInfo.ui)
 
 INCLUDE(${QT_USE_FILE})
 

@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QWizardPage>
 
 #include <pqApplicationCore.h>
+#include <pqContextView.h>
 #include <pqFileDialog.h>
 #include <pqPipelineFilter.h>
 #include <pqPipelineSource.h>
@@ -45,9 +46,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pqRenderView.h>
 #include <pqServerManagerModel.h>
 
+#include <vtkImageData.h>
+#include <vtkNew.h>
+#include <vtkPNGWriter.h>
 #include <vtkPVXMLElement.h>
+#include <vtkSmartPointer.h>
 #include <vtkSMProxyManager.h>
 #include <vtkSMSourceProxy.h>
+#include <vtkUnsignedCharArray.h>
+#include <vtkSMViewProxy.h>
+
 #include <vtksys/SystemTools.hxx>
 
 extern const char* tp_export_py;
@@ -91,6 +99,108 @@ public:
 class pqTPExportStateWizard::pqInternals : public Ui::ExportStateWizard
 {
 };
+
+//-----------------------------------------------------------------------------
+pqImageOutputInfo::pqImageOutputInfo(
+  QWidget *parentObject, Qt::WindowFlags parentFlags,
+  pqView* view, QString& viewName)
+  : QWidget(parentObject, parentFlags), View(view)
+{
+  this->Info.setupUi(this);
+
+  this->Info.imageFileName->setText(viewName);
+  QObject::connect(
+    this->Info.imageFileName, SIGNAL(editingFinished()),
+    this, SLOT(updateImageFileName()));
+
+  QObject::connect(
+    this->Info.imageType, SIGNAL(currentIndexChanged(const QString&)),
+    this, SLOT(updateImageFileNameExtension(const QString&)));
+
+  this->setupScreenshotInfo();
+};
+
+//-----------------------------------------------------------------------------
+void pqImageOutputInfo::updateImageFileName()
+{
+  QString fileName = this->Info.imageFileName->displayText();
+  if(fileName.isNull() || fileName.isEmpty())
+    {
+    fileName = "image";
+    }
+  QRegExp regExp("\\.(png|bmp|ppm|tif|tiff|jpg|jpeg)$");
+  if(fileName.contains(regExp) == 0)
+    {
+    fileName.append(".");
+    fileName.append(this->Info.imageType->currentText());
+    }
+  else
+    {  // update imageType if it is different
+    int extensionIndex = fileName.lastIndexOf(".");
+    QString anExtension = fileName.right(fileName.size()-extensionIndex-1);
+    int index = this->Info.imageType->findText(anExtension);
+    this->Info.imageType->setCurrentIndex(index);
+    fileName = this->Info.imageFileName->displayText();
+    }
+
+  if(fileName.contains("%t") == 0)
+    {
+    fileName.insert(fileName.lastIndexOf("."), "_%t");
+    }
+
+  this->Info.imageFileName->setText(fileName);
+}
+
+//-----------------------------------------------------------------------------
+void pqImageOutputInfo::updateImageFileNameExtension(
+  const QString& fileExtension)
+{
+  QString displayText = this->Info.imageFileName->text();
+  std::string newFileName = vtksys::SystemTools::GetFilenameWithoutExtension(
+    displayText.toLocal8Bit().constData());
+
+  newFileName.append(".");
+  newFileName.append(fileExtension.toLocal8Bit().constData());
+  this->Info.imageFileName->setText(QString::fromStdString(newFileName));
+}
+
+//-----------------------------------------------------------------------------
+void pqImageOutputInfo::setupScreenshotInfo()
+{
+  this->Info.thumbnailLabel->setVisible(true);
+  if(!this->View)
+    {
+    cerr << "no view available which seems really weird\n";
+    return;
+    }
+
+  QSize viewSize = this->View->getSize();
+  QSize thumbnailSize;
+  if(viewSize.width() > viewSize.height())
+    {
+    thumbnailSize.setWidth(100);
+    thumbnailSize.setHeight(100*viewSize.height()/viewSize.width());
+    }
+  else
+    {
+    thumbnailSize.setHeight(100);
+    thumbnailSize.setWidth(100*viewSize.width()/viewSize.height());
+    }
+  vtkSmartPointer<vtkImageData> image;
+  image.TakeReference(this->View->captureImage(thumbnailSize));
+  vtkNew<vtkPNGWriter> pngWriter;
+  pngWriter->SetInput(image);
+  pngWriter->WriteToMemoryOn();
+  pngWriter->Update();
+  pngWriter->Write();
+  vtkUnsignedCharArray* result = pngWriter->GetResult();
+  QPixmap thumbnail;
+  thumbnail.loadFromData(
+    result->GetPointer(0),
+    result->GetNumberOfTuples()*result->GetNumberOfComponents(), "PNG");
+
+  this->Info.thumbnailLabel->setPixmap(thumbnail);
+}
 
 //-----------------------------------------------------------------------------
 void pqTPExportStateWizardPage2::initializePage()
@@ -147,13 +257,9 @@ pqTPExportStateWizard::pqTPExportStateWizard(
   ::ActiveWizard = NULL;
   //this->setWizardStyle(ModernStyle);
   this->setOption(QWizard::NoCancelButton, false);
-  this->Internals->imageFileName->hide();
-  this->Internals->imageType->hide();
-  this->Internals->imageWriteFrequency->hide();
-
-  this->Internals->imageFileNameLabel->hide();
-  this->Internals->imageTypeLabel->hide();
-  this->Internals->imageWriteFrequencyLabel->hide();
+  this->Internals->viewsContainer->hide();
+  this->Internals->previousView->hide();
+  this->Internals->nextView->hide();
 
   QObject::connect(this->Internals->allInputs, SIGNAL(itemSelectionChanged()),
     this, SLOT(updateAddRemoveButton()));
@@ -170,32 +276,44 @@ pqTPExportStateWizard::pqTPExportStateWizard(
     this, SLOT(onRemove()));
 
   QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageType, SLOT(setVisible(bool)));
-  QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageFileName, SLOT(setVisible(bool)));
-  QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageWriteFrequency, SLOT(setVisible(bool)));
+                   this->Internals->viewsContainer, SLOT(setVisible(bool)));
 
-  QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageTypeLabel, SLOT(setVisible(bool)));
-  QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageFileNameLabel, SLOT(setVisible(bool)));
-  QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
-                   this->Internals->imageWriteFrequencyLabel, SLOT(setVisible(bool)));
+  QObject::connect(this->Internals->nextView, SIGNAL(pressed()),
+                   this, SLOT(incrementView()));
+  QObject::connect(this->Internals->previousView, SIGNAL(pressed()),
+                   this, SLOT(decrementView()));
 
   pqServerManagerModel* smModel = pqApplicationCore::instance()->getServerManagerModel();
-  this->NumberOfViews = smModel->getNumberOfItems<pqRenderView*>();
-  if(this->NumberOfViews > 1)
+  QList<pqRenderViewBase*> renderViews = smModel->findItems<pqRenderViewBase*>();
+  QList<pqContextView*> contextViews = smModel->findItems<pqContextView*>();
+  int viewCounter = 0;
+  int numberOfViews = renderViews.size() + contextViews.size();
+  // first do 2D and 3D render views
+  for(QList<pqRenderViewBase*>::Iterator it=renderViews.begin();
+      it!=renderViews.end();it++)
     {
-    this->Internals->imageFileName->setText("image_%v.png");
+    QString viewName = (numberOfViews == 1 ? "image_%t.png" :
+                        QString("image_%1_%t.png").arg(viewCounter) );
+    pqImageOutputInfo* imageOutputInfo = new pqImageOutputInfo(
+      this->Internals->viewsContainer, parentFlags, *it,  viewName);
+    this->Internals->viewsContainer->addWidget(imageOutputInfo);
+    viewCounter++;
     }
-  QObject::connect(
-    this->Internals->imageFileName, SIGNAL(editingFinished()),
-    this, SLOT(updateImageFileName()));
-
-  QObject::connect(
-    this->Internals->imageType, SIGNAL(currentIndexChanged(const QString&)),
-    this, SLOT(updateImageFileNameExtension(const QString&)));
+  for(QList<pqContextView*>::Iterator it=contextViews.begin();
+      it!=contextViews.end();it++)
+    {
+    QString viewName = (numberOfViews == 1 ? "image_%t.png" :
+                        QString("image_%1_%t.png").arg(viewCounter) );
+    pqImageOutputInfo* imageOutputInfo = new pqImageOutputInfo(
+      this->Internals->viewsContainer, parentFlags, *it, viewName);
+    this->Internals->viewsContainer->addWidget(imageOutputInfo);
+    viewCounter++;
+    }
+  if(numberOfViews > 1)
+    {
+    this->Internals->nextView->setEnabled(true);
+    }
+  this->Internals->viewsContainer->setCurrentIndex(0);
 }
 
 //-----------------------------------------------------------------------------
@@ -241,47 +359,45 @@ void pqTPExportStateWizard::onRemove()
 }
 
 //-----------------------------------------------------------------------------
-void pqTPExportStateWizard::updateImageFileName()
+void pqTPExportStateWizard::incrementView()
 {
-  QString fileName = this->Internals->imageFileName->displayText();
-  if(fileName.isNull() || fileName.isEmpty())
+  if(this->CurrentView >= this->Internals->viewsContainer->count()-1)
     {
-    fileName = "image";
+    cerr << "Already on the last view.  Next View button should be disabled.\n";
+    this->Internals->nextView->setEnabled(false);
+    return;
     }
-  QRegExp regExp("\\.(png|bmp|ppm|tif|tiff|jpg|jpeg)$");
-  if(fileName.contains(regExp) == 0)
+  if(this->CurrentView == 0)
     {
-    fileName.append(".");
-    fileName.append(this->Internals->imageType->currentText());
+    this->Internals->previousView->setEnabled(true);
     }
-  else
-    {  // update imageType if it is different
-    int extensionIndex = fileName.lastIndexOf(".");
-    QString anExtension = fileName.right(fileName.size()-extensionIndex-1);
-    int index = this->Internals->imageType->findText(anExtension);
-    this->Internals->imageType->setCurrentIndex(index);
-    fileName = this->Internals->imageFileName->displayText();
-    }
-
-  if(this->NumberOfViews > 1 && fileName.contains("%v") == 0)
+  this->CurrentView++;
+  this->Internals->viewsContainer->setCurrentIndex(this->CurrentView);
+  if(this->CurrentView >= this->Internals->viewsContainer->count()-1)
     {
-    fileName.insert(fileName.lastIndexOf("."), "_%v");
+    this->Internals->nextView->setEnabled(false);
     }
-
-  this->Internals->imageFileName->setText(fileName);
 }
 
 //-----------------------------------------------------------------------------
-void pqTPExportStateWizard::updateImageFileNameExtension(
-  const QString& fileExtension)
+void pqTPExportStateWizard::decrementView()
 {
-  QString displayText = this->Internals->imageFileName->text();
-  vtkstd::string newFileName = vtksys::SystemTools::GetFilenameWithoutExtension(
-    displayText.toLocal8Bit().constData());
-
-  newFileName.append(".");
-  newFileName.append(fileExtension.toLocal8Bit().constData());
-  this->Internals->imageFileName->setText(QString::fromStdString(newFileName));
+  if(this->CurrentView <= 0)
+    {
+    cerr << "Already on the first view.  Previous View button should be disabled.\n";
+    this->Internals->previousView->setEnabled(false);
+    return;
+    }
+  if(this->CurrentView == this->Internals->viewsContainer->count()-1)
+    {
+    this->Internals->nextView->setEnabled(true);
+    }
+  this->CurrentView--;
+  this->Internals->viewsContainer->setCurrentIndex(this->CurrentView);
+  if(this->CurrentView <= 0)
+    {
+    this->Internals->previousView->setEnabled(false);
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -298,9 +414,8 @@ bool pqTPExportStateWizard::validateCurrentPage()
     return true;
     }
 
-  QString image_file_name("");
-  int image_write_frequency = 0;
   QString export_rendering = "True";
+  QString rendering_info; // a map from the render view name to render output params
   if (this->Internals->outputRendering->isChecked() == 0)
     {
     export_rendering = "False";
@@ -356,8 +471,24 @@ bool pqTPExportStateWizard::validateCurrentPage()
     }
   else // we are creating an image so we need to get the proper information from there
     {
-    image_file_name = this->Internals->imageFileName->text();
-    image_write_frequency = this->Internals->imageWriteFrequency->value();
+    // the new way of getting the proxymanager -- probably after 3.12 or so
+    // vtkSMSessionProxyManager* pxm =
+    //     vtkSMProxyManager::GetProxyManager()->GetActiveSessionProxyManager();
+    vtkSMProxyManager* pxm = vtkSMProxyManager::GetProxyManager();
+    for(int i=0;i<this->Internals->viewsContainer->count();i++)
+      {
+      pqImageOutputInfo* viewInfo = dynamic_cast<pqImageOutputInfo*>(
+        this->Internals->viewsContainer->widget(i));
+      pqView* view = viewInfo->getView();
+      vtkSMViewProxy* viewProxy = view->getViewProxy();
+      QString info = QString(" '%1' : ['%2', '%3'],").
+        arg(pxm->GetProxyName("views", viewProxy)).
+        arg(viewInfo->getImageFileName()).
+        arg(viewInfo->getMagnification());
+      rendering_info+= info;
+      }
+    // remove the last comma -- assume that there's at least one view
+    rendering_info.chop(1);
     }
 
   QString filters ="ParaView Python State Files (*.py);;All files (*)";
@@ -400,9 +531,9 @@ bool pqTPExportStateWizard::validateCurrentPage()
   // remove last ","
   reader_inputs_map.chop(1);
 
-  int timeCompartmentSize = 2; // hard-coded for now
+  int timeCompartmentSize = this->Internals->timeCompartmentSize->value();
   QString command =
-    QString(tp_export_py).arg(export_rendering).arg(reader_inputs_map).arg(image_file_name).arg(timeCompartmentSize).arg(filename);
+    QString(tp_export_py).arg(export_rendering).arg(reader_inputs_map).arg(rendering_info).arg(timeCompartmentSize).arg(filename);
 
   dialog->runString(command);
   return true;
