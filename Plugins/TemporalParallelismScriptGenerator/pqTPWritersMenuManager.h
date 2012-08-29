@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define __pqTPWritersMenuManager_h
 
 #include <QObject>
+#include <QTimer>
 
 class QMenu;
 class QAction;
@@ -40,6 +41,10 @@ class QAction;
 /// pqTPWritersMenuManager is responsible for managing the menu for "Writers".
 /// pqTPPluginManager calls createMenu() when the plugin is initialized, then
 /// pqTPWritersMenuManager creates and setups up the co-processing writers menu.
+/// If another plugin is loaded after this one is then it rechecks to see
+/// if any writers were added with the CoProcessing hint in the XML file
+/// and if they were then the writers get added to the Writers menu.  See
+/// Resources/servermanager.xml for an example of how to do that.
 class pqTPWritersMenuManager : public QObject
 {
   Q_OBJECT
@@ -48,9 +53,8 @@ public:
   pqTPWritersMenuManager(QObject* parent=0);
   ~pqTPWritersMenuManager();
 
+public slots:
   /// Creates a new "Writers" menu and adds the co-processing writers to it.
-  /// If a "Writers" menu already exists, it typically symbolizes something
-  /// fishy and hence, it simply spits an error and gives up.
   void createMenu();
 
 protected slots:
@@ -68,6 +72,8 @@ private:
 private:
   pqTPWritersMenuManager(const pqTPWritersMenuManager&); // Not implemented.
   void operator=(const pqTPWritersMenuManager&); // Not implemented.
+
+  QTimer Timer;
 };
 
 #endif
