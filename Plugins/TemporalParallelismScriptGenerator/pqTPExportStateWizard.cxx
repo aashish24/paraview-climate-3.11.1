@@ -164,6 +164,11 @@ pqTPExportStateWizard::pqTPExportStateWizard(
   QObject::connect(this->Internals->removeButton, SIGNAL(clicked()),
     this, SLOT(onRemove()));
 
+  QObject::connect(this->Internals->allInputs, SIGNAL(itemDoubleClicked(QListWidgetItem*)),
+    this, SLOT(onAdd()));
+  QObject::connect(this->Internals->simulationInputs, SIGNAL(itemDoubleClicked(QListWidgetItem*)),
+    this, SLOT(onRemove()));
+
   QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
                    this->Internals->imageType, SLOT(setVisible(bool)));
   QObject::connect(this->Internals->outputRendering, SIGNAL(toggled(bool)),
