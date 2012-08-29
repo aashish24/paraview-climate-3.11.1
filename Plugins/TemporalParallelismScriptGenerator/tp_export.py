@@ -37,7 +37,8 @@ def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
     if proxy.GetXMLGroup() == 'views' and export_rendering:
         proxyName = servermanager.ProxyManager().GetProxyName("views", proxy)
         ctorArgs = [ ctorMethod, "\"%s\"" % screenshot_info[proxyName][0], \
-                         screenshot_info[proxyName][1], "tp_views" ]
+                         screenshot_info[proxyName][1], screenshot_info[proxyName][2], \
+                         screenshot_info[proxyName][3], "tp_views" ]
         return ("CreateView", ctorArgs, extraCtorCommands)
 
     # handle writers.
@@ -195,11 +196,12 @@ def CreateWriter(ctor, filename, tp_writers):
     tp_writers.append(writer)
     return writer
 
-def CreateView(proxy_ctor, filename, magnification, tp_views):
+def CreateView(proxy_ctor, filename, magnification, width, height, tp_views):
     view = proxy_ctor()
     view.add_attribute("tpFileName", filename)
     view.add_attribute("tpMagnification", magnification)
     tp_views.append(view)
+    view.ViewSize = [width, height]
     return view
 
 tp_writers = []
