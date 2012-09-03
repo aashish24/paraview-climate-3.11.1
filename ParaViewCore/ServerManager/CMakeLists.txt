@@ -231,10 +231,17 @@ VTK_ADD_LIBRARY(vtk${KIT}
   ${vtkPVServerManagerCS_SRCS}
   ${KitInstantiator_SRCS}
   )
-TARGET_LINK_LIBRARIES(vtk${KIT}
-  vtkPVServerImplementationCS
-  vtkPVServerImplementation
-  )
+
+IF (PARAVIEW_USE_GNU_R)
+ TARGET_LINK_LIBRARIES(vtk${KIT}
+   vtkPVServerImplementationCS
+   vtkPVServerImplementation
+   ${R_LIBRARIES})
+ELSE()
+   TARGET_LINK_LIBRARIES(vtk${KIT}
+   vtkPVServerImplementationCS
+   vtkPVServerImplementation)
+ENDIF()
 
 IF(PARAVIEW_USE_VISITBRIDGE)
   TARGET_LINK_LIBRARIES(vtk${KIT}
