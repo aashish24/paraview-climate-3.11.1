@@ -1,5 +1,6 @@
 
 #
+# INPUT R_DIR
 # - This module locates an installed R distribution.  
 #
 # Defines the following:
@@ -18,14 +19,17 @@ IF (R_COMMAND)
 ENDIF (R_COMMAND)
 SET(CMAKE_FIND_APPBUNDLE ${TEMP_CMAKE_FIND_APPBUNDLE})
 
-FIND_PATH(R_INCLUDE_DIR R.h PATHS /usr/local/lib /usr/local/lib64 PATH_SUFFIXES R/include DOC "Path to file R.h")
-FIND_LIBRARY(R_LIBRARY_BASE R PATHS ${R_BASE_DIR} PATH_SUFFIXES /lib DOC "R library (example libR.a, libR.dylib, etc.).")
-FIND_LIBRARY(R_LIBRARY_BLAS Rblas PATHS ${R_BASE_DIR} PATH_SUFFIXES /lib DOC "Rblas library (example libRblas.a, libRblas.dylib, etc.).")
-FIND_LIBRARY(R_LIBRARY_LAPACK Rlapack PATHS ${R_BASE_DIR} PATH_SUFFIXES /lib  DOC "Rlapack library (example libRlapack.a, libRlapack.dylib, etc.).")
-FIND_LIBRARY(R_LIBRARY_READLINE readline DOC "(Optional) system readline library. Only required if the R libraries were build with readline support.")
+FIND_PATH(R_INCLUDE_DIR R.h PATHS ${R_DIR} /usr/local/lib /usr/local/lib64 PATH_SUFFIXES R/include /include DOC "Path to file R.h")
+FIND_LIBRARY(R_LIBRARY_BASE R PATHS ${R_DIR} ${R_BASE_DIR} PATH_SUFFIXES /lib DOC "R library (example libR.a, libR.dylib, etc.).")
+FIND_LIBRARY(R_LIBRARY_BLAS Rblas PATHS ${R_DIR} ${R_BASE_DIR} PATH_SUFFIXES /lib DOC "Rblas library (example libRblas.a, libRblas.dylib, etc.).")
+FIND_LIBRARY(R_LIBRARY_LAPACK Rlapack PATHS ${R_DIR} ${R_BASE_DIR} PATH_SUFFIXES /lib  DOC "Rlapack library (example libRlapack.a, libRlapack.dylib, etc.).")
 
 SET(R_LIBRARIES ${R_LIBRARY_BASE} ${R_LIBRARY_BLAS} ${R_LIBRARY_LAPACK} ${R_LIBRARY_BASE})
-IF (R_LIBRARY_READLINE)
-  SET(R_LIBRARIES ${R_LIBRARIES} ${R_LIBRARY_READLINE})
-ENDIF (R_LIBRARY_READLINE)
 
+OPTION(VTK_USE_R_REQUIRES_READLINE "R library requires linking against the readline" OFF)
+IF(VTK_USE_R_REQUIRES_READLINE)
+  FIND_LIBRARY(R_LIBRARY_READLINE readline DOC "(Optional) system readline library. Only required if the R libraries were build with readline support.")
+  IF (R_LIBRARY_READLINE)
+    SET(R_LIBRARIES ${R_LIBRARIES} ${R_LIBRARY_READLINE})
+  ENDIF (R_LIBRARY_READLINE)
+ENDIF(VTK_USE_R_REQUIRES_READLINE)
