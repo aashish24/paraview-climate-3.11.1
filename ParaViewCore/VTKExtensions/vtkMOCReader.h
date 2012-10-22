@@ -75,11 +75,21 @@ protected:
              Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
              Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w,
              int imt, int jmt, int km);
-  void moc(MOCInfo* mocinfo, Matrix3DFloat& v, Matrix3DFloat& w,
+  void wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
+                 Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
+                 Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w, int imt, int jmt);
+
+  void moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
            Matrix2DInt& kmtb, Matrix2DFloat& tLat, Matrix2DFloat& dxu,
-           Matrix2DFloat& tarea, Matrix1DFloat& dz, Matrix1DFloat& lats,
-           int ny, Matrix2DFloat& psi, int* ext3D, int* real_ext3D,
-           int imt, int jmt);
+           Matrix2DFloat& tarea, Matrix1DFloat& dz, Matrix3DFloat& dzu, Matrix1DFloat& lats,
+           int ny, int local_jj, bool has_global_jj, float southern_lat,
+           int imt, int jmt, Matrix2DFloat& psi);
+
+  void meridional_heat(MOCInfo* mocInfo, Matrix2DInt& kmtb, Matrix2DFloat& tLat,
+                       Matrix1DFloat& lats, int ny, int jj, float southern_lat,
+                       Matrix2DFloat& worky, Matrix2DFloat& work1,
+                       Matrix1DFloat& mht);
+
   void GetMOCSize(MOCInfo*, int* y, int* z);
   int cshift(int i, int offset, int size);
 
@@ -100,13 +110,16 @@ protected:
 
   static int compare_latitude(const void* x, const void* y);
 
-  // Description:
-  // the namelist file containing all input variables
-  char* FileName;
+  void FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D, Matrix2DInt& kmtb,
+                    Matrix2DFloat& tLat, int* local_jj, bool* has_global_jj, float* southern_lat);
 
 private:
   vtkMOCReader(const vtkMOCReader&);          // not implemented
   void operator = (const vtkMOCReader&);   // not implemented
+
+  // Description:
+  // the namelist file containing all input variables
+  char* FileName;
 };
 
 
