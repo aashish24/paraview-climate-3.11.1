@@ -33,6 +33,13 @@
 
 namespace
 {
+// a point, used for an optimization in computing moc and mht
+  struct moc_mht_point_t
+  {
+    float lat;   // latitude of point
+    float work;  // quantity being considered
+  };
+
   inline void Swap4(char *n)
   {
     char *n1;
@@ -576,6 +583,9 @@ public:
     this->do_global = true;
     this->do_atl = true;
     this->do_indopac = true;
+    this->do_msf = true;
+    this->do_mht = true;
+    this->use_pbc = false;
     this->byteswap = false;
   }
 
@@ -589,7 +599,9 @@ public:
     data << this->kmt_global_file << this->kmt_atl_file << this->kmt_indopac_file;
     data << this->in_depths << this->grid_file << this->u_file << this->v_file;
     data << static_cast<int>(this->do_global) << static_cast<int>(this->do_atl);
-    data << static_cast<int>(this->do_indopac) << static_cast<int>(this->byteswap);
+    data << static_cast<int>(this->do_indopac) << static_cast<int>(this->do_msf);
+    data << static_cast<int>(this->do_mht) << static_cast<int>(this->use_pbc);
+    data << static_cast<int>(this->byteswap);
   }
 
   // set the values from data in the internal variables.
@@ -607,6 +619,12 @@ public:
     data >> tmp;
     this->do_indopac = static_cast<bool>(tmp);
     data >> tmp;
+    this->do_msf = static_cast<bool>(tmp);
+    data >> tmp;
+    this->do_mht = static_cast<bool>(tmp);
+    data >> tmp;
+    this->use_pbc = static_cast<bool>(tmp);
+    data >> tmp;
     this->byteswap = static_cast<bool>(tmp);
   }
 
@@ -623,9 +641,12 @@ public:
   std::string grid_file;            // grid information
   std::string u_file;               // u-velocities
   std::string v_file;               // v-velocities
-  bool do_global;              // compute global moc or not
-  bool do_atl;                 // compute atlantic moc or not
-  bool do_indopac;             // compute indian-pacific moc or not
+  bool do_global;              // compute global quantities
+  bool do_atl;                 // compute atlantic quantities
+  bool do_indopac;             // compute indian-pacific quantities
+  bool do_msf;                 // compute meridional overturning circulation
+  bool do_mht;                 // compute meridional heat transport
+  bool use_pbc;                // use partial bottom cells
   bool byteswap;               // byteswap the binary input files
 };
 
@@ -1270,53 +1291,92 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   // psi[][][2] -- indo-pacific moc
   Matrix3DFloat psi(ny_mht, km, 3);
 
+
+
+
+
+
+  int local_jj = -1;
+  bool has_global_jj = false;
+  float southern_lat = -1000;
+  this->FindSouthern(imt, jmt, ext3D, real_ext3D, global_kmt, tLat,
+                     &local_jj, &has_global_jj, &southern_lat);
+  // made up stuff for meridional_heat()
+  Matrix2DFloat worky(0,0);
+  Matrix2DFloat work1(0,0);
+  Matrix1DFloat mht_temp(0);
+  Matrix3DFloat dzu(imt, jmt, km);
+  int jj = -1;
+
+
+
+
   // calculate overturning streamfunctions
 
   // first do global
   if(mocInfo.do_global)
     {
-    this->moc(&mocInfo, v, w, global_kmt, tLat, dxu, tarea, dz, lat_mht, ny_mht,
-              psi_temp_old, ext3D, real_ext3D, imt, jmt);
-
-    // copy values to correct array
-    for(int k=0; k<km; k++)
+    if(mocInfo.do_msf)
       {
-      for(int y=0; y<ny_mht; y++)
+      this->moc(&mocInfo, v, w, global_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
+                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+
+      // copy values to correct array
+      for(int k=0; k<km; k++)
         {
-        psi(y,k,0) = psi_temp_old(k,y);
+        for(int y=0; y<ny_mht; y++)
+          {
+          psi(y,k,0) = psi_temp_old(k,y);
+          }
         }
+      } // mocInfo.do_msf
+    if(mocInfo.do_mht)
+      {
+      //this->meridional_heat(&mocInfo, global_kmt, tLat, lat_mht, ny_mht, jj, southern_lat, worky, work1, mht_temp);
       }
     }
 
   // next do atlantic
   if(mocInfo.do_atl)
     {
-    this->moc(&mocInfo, v, w, atl_kmt, tLat, dxu, tarea, dz, lat_mht, ny_mht,
-              psi_temp_old, ext3D, real_ext3D, imt, jmt);
-
-    // copy values to correct array
-    for(int k=0; k<km; k++)
+    if(mocInfo.do_msf)
       {
-      for(int y=0; y<ny_mht; y++)
+      this->moc(&mocInfo, v, w, atl_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
+                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+
+      // copy values to correct array
+      for(int k=0; k<km; k++)
         {
-        psi(y,k,1) = psi_temp_old(k,y);
+        for(int y=0; y<ny_mht; y++)
+          {
+          psi(y,k,1) = psi_temp_old(k,y);
+          }
         }
+      } // mocInfo.do_msf
+    if(mocInfo.do_mht)
+      {
       }
     }
 
   // now do indo-pacific
   if(mocInfo.do_indopac)
     {
-    this->moc(&mocInfo, v, w, indopac_kmt, tLat, dxu, tarea, dz, lat_mht, ny_mht,
-              psi_temp_old, ext3D, real_ext3D, imt, jmt);
-
-    // copy values to correct array
-    for(int k=0; k<km; k++)
+    if(mocInfo.do_msf)
       {
-      for(int y=0; y<ny_mht; y++)
+      this->moc(&mocInfo, v, w, indopac_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
+                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+
+      // copy values to correct array
+      for(int k=0; k<km; k++)
         {
-        psi(y,k,2) = psi_temp_old(k,y);
+        for(int y=0; y<ny_mht; y++)
+          {
+          psi(y,k,2) = psi_temp_old(k,y);
+          }
         }
+      } // mocInfo.do_msf
+    if(mocInfo.do_mht)
+      {
       }
     }
 
@@ -1604,24 +1664,85 @@ void vtkMOCReader::wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu,
 }
 
 //-----------------------------------------------------------------------------
+void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
+                             Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
+                             Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w, int imt, int jmt)
+{
+  // calculate w ,the vertical velocities, since only u and v are read
+  // from file.
+  // this version is used when using partial bottom cells.
+
+  int i, j, k, im1, jm1;
+  double p5 = 0.5;
+  double fue, fuw, fvn, fvs;
+  double wtkb;
+
+  for(i=0; i<imt*jmt; i++)
+  {
+    wtkb = 0.0; // set bottom velocity to zero
+  }
+
+  for(j=0; j<jmt; j++)
+  {
+    jm1 = j - 1;
+    if(j==0)
+    {
+      // make the value wrap around, which differs from the fortran code
+      //jm1 = jmt-1;
+      jm1 = 0;  // fortran code
+    }
+
+    for(i=0; i<imt; i++)
+    {
+      im1 = i - 1;
+      if(i==0)
+      {
+        im1 = imt-1;
+      }
+
+      wtkb = 0.0;  // vertical velocity is zero at bottom of cell
+
+      if(kmt(i,j) != 0)
+      {
+        for(k=kmt(i,j)-1; k>=0; k--)
+        {
+          // advection fluxes
+          fue = p5 * (u(i,j  ,k) * dyu(i,j  ) * dzu(i,j  ,k) +
+                      u(i,jm1,k) * dyu(i,jm1) * dzu(i,jm1,k));
+
+          fuw = p5 * (u(im1,j  ,k) * dyu(im1,j  ) * dzu(im1,j  ,k) +
+                      u(im1,jm1,k) * dyu(im1,jm1) * dzu(im1,jm1,k));
+
+          fvn = p5 * (v(i  ,j,k) * dxu(i  ,j) * dzu(i  ,j,k) +
+                      v(im1,j,k) * dxu(im1,j) * dzu(im1,j,k));
+
+          fvs = p5 * (v(i  ,jm1,k) * dxu(i  ,jm1) * dzu(i  ,jm1,k) +
+                      v(im1,jm1,k) * dxu(im1,jm1) * dzu(im1,jm1,k));
+
+          // vertical velocity from top of box from continuity equation
+          w(i,j,k) = wtkb - (fvn - fvs + fue - fuw)/tarea(i,j);
+
+          // top value becomes bottom for next pass
+          wtkb = w(i,j,k);
+        }
+      }
+    }
+  }
+
+
+  printf("done calculating w\n");
+}
+
+//-----------------------------------------------------------------------------
 void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
                        Matrix2DInt& kmtb, Matrix2DFloat& tLat, Matrix2DFloat& dxu,
-                       Matrix2DFloat& tarea, Matrix1DFloat& dz,
-                       Matrix1DFloat& lats, int ny, Matrix2DFloat& psi,
-                       int* ext3D, int* real_ext3D, int imt, int jmt)
+                       Matrix2DFloat& tarea, Matrix1DFloat& dz, Matrix3DFloat& dzu,
+                       Matrix1DFloat& lats, int ny, int local_jj, bool has_global_jj,
+                       float southern_lat, int imt, int jmt, Matrix2DFloat& psi)
 {
-  // need to initialize these variables since on some processes
-  // they may not get set before they're used
-  int jj = VTK_INT_MAX, local_jj = VTK_INT_MAX, true_jj = VTK_INT_MAX;
-
   // calculates the meridional overturning circulation
   Matrix2DFloat work(imt, jmt);
   Matrix1DFloat psi0(mocInfo->km);
-
-  vtkMultiProcessController* controller =
-    vtkMultiProcessController::GetGlobalController();
-  int rank = controller->GetLocalProcessId();
-
   // initialize psi array
   for(int i=0; i<mocInfo->km*ny; i++)
     {
@@ -1632,43 +1753,9 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     psi0(k) = 0.0;
     }
 
-  // find j index of southernmost ocean point in basin
-  bool found = false;
-  for(int j=1; j<jmt-1; j++)
-    {
-    for(int i=1; i<imt-1; i++)
-      {
-      if(kmtb(i,j) != 0)
-        {
-        jj = j + ext3D[2];
-        local_jj = j;
-        found = true;
-        break;
-        }
-      }
-    if(found)
-      {
-      break;
-      }
-    }
-
-  // the minimum j-index is the true j-index
-  controller->AllReduce(&jj, &true_jj, 1, vtkCommunicator::MIN_OP);
-
-  // find southern_lat, and collect it at process 0
-  float my_southern_lat;
-  if(jj == true_jj && real_ext3D[0] == 0)
-    {
-    // ydeg(jj-1)
-    my_southern_lat = 0.5*(tLat(0, local_jj) + tLat(0, local_jj-1));
-    }
-  else
-    {
-    my_southern_lat = std::numeric_limits<float>::max();
-    }
-  float southern_lat;
-  controller->Reduce(&my_southern_lat, &southern_lat, 1,
-                     vtkCommunicator::MIN_OP, 0);
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
+  int rank = controller->GetLocalProcessId();
 
   // zonal and vertical integration to find streamfunction across southernmost
   // grid circle in basin
@@ -1680,11 +1767,18 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // everyone computes a local psi0 if necessary, then a reduce is done
   // to get correct psi0. only process 0 will have correct psi0.
   //int j = local_jj-1; not used since local_jj may still be VTK_INT_MAX
-  if(jj == true_jj)
+  if(has_global_jj)
     {
     for(int i=1; i<imt-1; i++)
       {
-      work(i,local_jj-1) = -dz(mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
+      if(mocInfo->use_pbc)
+        {
+        work(i,local_jj-1) = -dzu(i,local_jj,mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
+        }
+      else
+        {
+        work(i,local_jj-1) = -dz(mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
+        }
       }
 
     psi0(mocInfo->km-1) = 0.0;
@@ -1700,11 +1794,18 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
 
   for(int k=mocInfo->km-1; k>=1; k--)
     {
-    if(jj == true_jj)
+    if(has_global_jj)
       {
       for(int i=1; i<imt-1; i++)
         {
-        work(i,local_jj-1) = -dz(k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
+        if(mocInfo->use_pbc)
+          {
+          work(i,local_jj-1) = -dzu(i,local_jj,k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
+          }
+        else
+          {
+          work(i,local_jj-1) = -dz(k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
+          }
         }
 
       for(int i=1; i<imt-1; i++)
@@ -1835,6 +1936,88 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // process 0 broadcasts results to everyone
   controller->Broadcast(psi.GetData(), ny*mocInfo->km, 0);
 }
+
+//-----------------------------------------------------------------------------
+void vtkMOCReader::meridional_heat(
+  MOCInfo* mocInfo,
+  Matrix2DInt& kmtb, Matrix2DFloat& tLat,
+  Matrix1DFloat& lats, int ny, int jj, float southern_lat,
+  Matrix2DFloat& worky, Matrix2DFloat& work1,
+  Matrix1DFloat& mht)
+{
+  for(int i=0; i<ny; i++)
+    {
+    mht(i) = 0.0;
+    }
+
+  printf("southernmost j = %i\n", jj);
+  printf("southernmost lat = %f\n", southern_lat);
+
+  // zonal integration to find heat transport
+  // across southernmost grid circle in basin
+  float mht0 = 0.0;
+  int j = jj-1;
+  int j2 = cshift(j, 1, mocInfo->jmt);
+  for(int i=0; i<mocInfo->imt; i++)
+    {
+    if(kmtb(i,j) == 0 && kmtb(i,j2) > 0)
+      {
+      mht0 += worky(i,j);
+      }
+    }
+
+  printf("mht0: %f \n", mht0);
+
+  // optimized way to find mht
+  // scan through all points of the layer and find all valid points
+  // which are not land. record the latitude of the point as well as its work
+  // value
+  moc_mht_point_t* points = new moc_mht_point_t[mocInfo->imt*mocInfo->jmt];
+  int npoints = 0;
+  for(int i=0; i<mocInfo->imt*mocInfo->jmt; i++)
+    {
+    if(kmtb(i) > 0)
+      {
+      points[npoints].work = work1(i);
+      points[npoints].lat = tLat(i);
+      npoints++;
+      }
+    }
+
+  // sort all points by their latitude
+  qsort(points, npoints, sizeof(moc_mht_point_t), compare_latitude);
+
+  // step through latitude from the bottom up, accumulating all points with are
+  // less than or equal to the current latitude. keep track of where in the
+  // points array the accumulation has gone to. start each search through the
+  // points at the point where we left off before.
+  int index = 0; // the current place of the points array
+  for(j=0; j<ny; j++)
+    {
+    if(j > 0)
+      {
+      mht(j) = mht(j-1);
+      }
+    float lats_j = lats(j);
+    while(index < npoints && points[index].lat < lats_j)
+      {
+      mht(j) += points[index].work;
+      index++;
+      }
+    }
+
+  for(j=0; j<ny; j++)
+    {
+    if(lats(j) > southern_lat)
+      {
+      mht(j) += mht0;
+      }
+    }
+
+  delete[] points;
+}
+
+
 
 //-----------------------------------------------------------------------------
 int vtkMOCReader::cshift(int i, int offset, int size)
@@ -2703,10 +2886,61 @@ int vtkMOCReader::compare_latitude(const void* x, const void* y)
 }
 
 //-----------------------------------------------------------------------------
+void vtkMOCReader::FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D,
+                                Matrix2DInt& kmtb, Matrix2DFloat& tLat, int* local_jj,
+                                bool* has_global_jj, float* southern_lat)
+{
+  // need to initialize these variables since on some processes
+  // they may not get set before they're used
+  int jj = VTK_INT_MAX, true_jj = VTK_INT_MAX;
+  *local_jj = VTK_INT_MAX;
+
+  // find j index of southernmost ocean point in basin
+  bool found = false;
+  for(int j=1; j<jmt-1; j++)
+    {
+    for(int i=1; i<imt-1; i++)
+      {
+      if(kmtb(i,j) != 0)
+        {
+        jj = j + ext3D[2];
+        *local_jj = j;
+        found = true;
+        break;
+        }
+      }
+    if(found)
+      {
+      break;
+      }
+    }
+
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
+
+  // the minimum j-index is the true j-index
+  controller->AllReduce(&jj, &true_jj, 1, vtkCommunicator::MIN_OP);
+  *has_global_jj = (true_jj == jj);
+
+  // find southern_lat, and collect it at process 0
+  float my_southern_lat;
+  if(jj == true_jj && real_ext3D[0] == 0)
+    {
+    // ydeg(jj-1)
+    my_southern_lat = 0.5*(tLat(0, *local_jj) + tLat(0, *local_jj-1));
+    }
+  else
+    {
+    my_southern_lat = std::numeric_limits<float>::max();
+    }
+  controller->Reduce(&my_southern_lat, southern_lat, 1,
+                     vtkCommunicator::MIN_OP, 0);
+}
+
+//-----------------------------------------------------------------------------
 void vtkMOCReader::PrintSelf(ostream& os, vtkIndent indent)
 {
   this->Superclass::PrintSelf(os, indent);
   os << indent << "FileName: "
      << (this->FileName ? this->FileName : "(NULL)") << endl;
-
 }
