@@ -30,6 +30,7 @@ class Matrix2DFloat;
 class Matrix2DInt;
 class Matrix3DFloat;
 class MOCInfo;
+class InternalMHTWorkArrays;
 
 class VTK_EXPORT vtkMOCReader : public vtkRectilinearGridAlgorithm
 {
@@ -47,6 +48,7 @@ public:
   // check file for suitability to this reader
   int CanReadFile(const char* fname);
 
+  static int cshift(int i, int offset, int size);
 
 protected:
   vtkMOCReader();
@@ -58,8 +60,8 @@ protected:
                   vtkInformationVector **,
                   vtkInformationVector *);
 
-  int ParseHeader(const char* fileName, MOCInfo* mocinfo);
-  int SingleProcessParseHeader(const char* fileName, MOCInfo* mocinfo);
+  int ParseMetaFile(const char* fileName, MOCInfo* mocinfo);
+  int SingleProcessParseMetaFile(const char* fileName, MOCInfo* mocinfo);
   std::string getNextLine(ifstream& file);
   int checkParse(std::string& line, std::ios_base::iostate state);
   const std::string trim(const std::string& pstring, const std::string& pWhitespace = " \t");
@@ -87,11 +89,9 @@ protected:
 
   void meridional_heat(MOCInfo* mocInfo, Matrix2DInt& kmtb, Matrix2DFloat& tLat,
                        Matrix1DFloat& lats, int ny, int jj, float southern_lat,
-                       Matrix2DFloat& worky, Matrix2DFloat& work1,
                        Matrix1DFloat& mht);
 
   void GetMOCSize(MOCInfo*, int* y, int* z);
-  int cshift(int i, int offset, int size);
 
   int LoadData(MOCInfo* mocinfo, int* ext3D, int* ext3D2, int imt, int jmt,
                int km, Matrix2DDouble& uLat,
@@ -113,6 +113,28 @@ protected:
   void FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D, Matrix2DInt& kmtb,
                     Matrix2DFloat& tLat, int* local_jj, bool* has_global_jj, float* southern_lat);
 
+  // Description:
+  // Conversions from global to local indexing. For serial the values will be the same.
+  int GetLocalIMT(int global_imt)
+  {
+    return global_imt - this->GlobalIMT0;
+  }
+  int GetLocalJMT(int global_jmt)
+  {
+    return global_jmt - this->GlobalJMT0;
+  }
+
+  // Description:
+  // Conversions from local to global indexing. For serial the values will be the same.
+  int GetGlobalIMT(int local_imt)
+  {
+    return local_imt+this->GlobalIMT0;
+  }
+  int GetGlobalJMT(int local_jmt)
+  {
+    return local_jmt+this->GlobalJMT0;
+  }
+
 private:
   vtkMOCReader(const vtkMOCReader&);          // not implemented
   void operator = (const vtkMOCReader&);   // not implemented
@@ -120,6 +142,12 @@ private:
   // Description:
   // the namelist file containing all input variables
   char* FileName;
+  InternalMHTWorkArrays* MHTWorkArrays;
+
+  // Description:
+  // Values that correspond to imt=0 and jmt=0.
+  int GlobalIMT0;
+  int GlobalJMT0;
 };
 
 

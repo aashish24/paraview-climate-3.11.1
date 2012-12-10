@@ -27,7 +27,6 @@
 #include "vtkMultiProcessController.h"
 #include "vtkCommunicator.h"
 
-
 #include "vtkNew.h"
 #include "vtkTimerLog.h"
 
@@ -38,6 +37,8 @@ namespace
   {
     float lat;   // latitude of point
     float work;  // quantity being considered
+    moc_mht_point_t(float l, float w) : lat(l), work(w)
+    {}
   };
 
   inline void Swap4(char *n)
@@ -92,6 +93,46 @@ namespace
     float lat;   // latitude of point
     float work;  // the vertical velocity normalized by some quantities
   };
+
+  int seekFile(FILE* f, int first_record, int imt, int jmt)
+  {
+    // move the file pointer to the correct position for the given record.
+    // have to be careful since the amount to move may be larger than
+    // the long int used in fseek.
+    // after the function, the file pointer should be in the correct position.
+    // returns 0 if successful, otherwise returns a non-zero value.
+
+    int ret_val;
+    long long int offset;
+    offset = (long long int)imt*jmt*(first_record-1)*sizeof(float);
+
+    ret_val = fseek(f, 0, SEEK_SET);
+    if(ret_val != 0)
+      {
+      return ret_val;
+      }
+
+    while(offset > 0)
+      {
+      long int chunk;
+      if(offset > std::numeric_limits<long int>::max())
+        {
+        chunk = std::numeric_limits<long int>::max();
+        }
+      else
+        {
+        chunk = offset;
+        }
+      offset = offset - chunk;
+      ret_val = fseek(f, chunk, SEEK_CUR);
+      if(ret_val != 0)
+        {
+        return ret_val;
+        }
+      }
+
+    return 0;
+  }
 }
 
 // matrix classes used in the MOC code
@@ -102,7 +143,9 @@ namespace
 
 class Matrix1DFloat {
 public:
+  Matrix1DFloat();
   Matrix1DFloat(unsigned int xDim);
+  void Allocate(unsigned int xDim);
   float& operator() (unsigned int i);
   float  operator() (unsigned int i) const;
   float* GetData();
@@ -122,10 +165,28 @@ private:
 };
 
 inline
+Matrix1DFloat::Matrix1DFloat()
+{
+  this->XDim = 0;
+  this->Data = NULL;
+}
+
+inline
 Matrix1DFloat::Matrix1DFloat(unsigned int xDim)
 {
   this->XDim = xDim;
   this->Data = new float[xDim];
+}
+
+inline
+void Matrix1DFloat::Allocate(unsigned int xDim)
+{
+  if(this->XDim != xDim)
+    {
+    this->Clear();
+    this->XDim = xDim;
+    this->Data = new float[xDim];
+    }
 }
 
 inline
@@ -180,7 +241,9 @@ float Matrix1DFloat::operator() (unsigned int i) const
 
 class Matrix2DInt {
 public:
+  Matrix2DInt();
   Matrix2DInt(unsigned int xDim, unsigned int yDim);
+  void Allocate(unsigned int xDim, unsigned int yDim);
   int& operator() (unsigned int i, unsigned j);
   int  operator() (unsigned int i, unsigned int j) const;
   int& operator() (unsigned int i);
@@ -202,12 +265,33 @@ private:
 };
 
 inline
+Matrix2DInt::Matrix2DInt()
+{
+  this->XDim = 0;
+  this->YDim = 0;
+
+  this->Data = NULL;
+}
+
+inline
 Matrix2DInt::Matrix2DInt(unsigned int xDim, unsigned int yDim)
 {
   this->XDim = xDim;
   this->YDim = yDim;
 
   this->Data = new int[xDim * yDim];
+}
+
+inline
+void Matrix2DInt::Allocate(unsigned int xDim, unsigned int yDim)
+{
+  if(this->XDim != xDim || this->YDim != yDim)
+    {
+    this->Clear();
+    this->XDim = xDim;
+    this->YDim = yDim;
+    this->Data = new int[xDim * yDim];
+    }
 }
 
 inline
@@ -276,7 +360,9 @@ int Matrix2DInt::operator() (unsigned int i) const
 
 class Matrix2DFloat {
 public:
+  Matrix2DFloat();
   Matrix2DFloat(unsigned int xDim, unsigned int yDim);
+  void Allocate(unsigned int xDim, unsigned int yDim);
   float& operator() (unsigned int xDim, unsigned yDim);
   float  operator() (unsigned int xDim, unsigned int yDim) const;
   float& operator() (unsigned int i);
@@ -298,12 +384,33 @@ private:
 };
 
 inline
+Matrix2DFloat::Matrix2DFloat()
+{
+  this->XDim = 0;
+  this->YDim = 0;
+
+  this->Data = NULL;
+}
+
+inline
 Matrix2DFloat::Matrix2DFloat(unsigned int xDim, unsigned int yDim)
 {
   this->XDim = xDim;
   this->YDim = yDim;
 
   this->Data = new float[xDim * yDim];
+}
+
+inline
+void Matrix2DFloat::Allocate(unsigned int xDim, unsigned int yDim)
+{
+  if(xDim != this->XDim || yDim != this->YDim)
+    {
+    this->Clear();
+    this->XDim = xDim;
+    this->YDim = yDim;
+    this->Data = new float[xDim * yDim];
+    }
 }
 
 inline
@@ -372,7 +479,9 @@ float Matrix2DFloat::operator() (unsigned int i) const
 
 class Matrix2DDouble {
 public:
+  Matrix2DDouble();
   Matrix2DDouble(unsigned int xDim, unsigned int yDim);
+  void Allocate(unsigned int xDim, unsigned int yDim);
   double& operator() (unsigned int i, unsigned j);
   double  operator() (unsigned int i, unsigned int j) const;
   double& operator() (unsigned int i);
@@ -394,12 +503,33 @@ private:
 };
 
 inline
+Matrix2DDouble::Matrix2DDouble()
+{
+  this->XDim = 0;
+  this->YDim = 0;
+
+  this->Data = NULL;
+}
+
+inline
 Matrix2DDouble::Matrix2DDouble(unsigned int xDim, unsigned int yDim)
 {
   this->XDim = xDim;
   this->YDim = yDim;
 
   this->Data = new double[xDim * yDim];
+}
+
+inline
+void Matrix2DDouble::Allocate(unsigned int xDim, unsigned int yDim)
+{
+  if(this->XDim != xDim || this->YDim != yDim)
+    {
+    this->Clear();
+    this->XDim = xDim;
+    this->YDim = yDim;
+    this->Data = new double[xDim * yDim];
+    }
 }
 
 inline
@@ -468,7 +598,9 @@ double Matrix2DDouble::operator() (unsigned int i) const
 
 class Matrix3DFloat {
 public:
+  Matrix3DFloat();
   Matrix3DFloat(unsigned int xDim, unsigned int yDim, unsigned int zDim);
+  void Allocate(unsigned int xDim, unsigned int yDim, unsigned int zDim);
   float& operator() (unsigned int i, unsigned j, unsigned int k);
   float  operator() (unsigned int i, unsigned int j, unsigned int k) const;
   float& operator() (unsigned int i);
@@ -490,6 +622,16 @@ private:
 };
 
 inline
+Matrix3DFloat::Matrix3DFloat()
+{
+  this->XDim = 0;
+  this->YDim = 0;
+  this->ZDim = 0;
+
+  this->Data = NULL;
+}
+
+inline
 Matrix3DFloat::Matrix3DFloat(unsigned int xDim, unsigned int yDim, unsigned int zDim)
 {
   this->XDim = xDim;
@@ -497,6 +639,19 @@ Matrix3DFloat::Matrix3DFloat(unsigned int xDim, unsigned int yDim, unsigned int 
   this->ZDim = zDim;
 
   this->Data = new float[xDim * yDim * zDim];
+}
+
+inline
+void Matrix3DFloat::Allocate(unsigned int xDim, unsigned int yDim, unsigned int zDim)
+{
+  if(this->XDim != xDim || this->YDim != yDim || this->ZDim != zDim)
+    {
+    this->Clear();
+    this->XDim = xDim;
+    this->YDim = yDim;
+    this->ZDim = zDim;
+    this->Data = new float[xDim * yDim * zDim];
+    }
 }
 
 inline
@@ -567,9 +722,9 @@ class MOCInfo {
 public:
   MOCInfo()
   {
-    this->imt = 320;
-    this->jmt = 384;
-    this->km = 40;
+    this->global_imt = 320;
+    this->global_jmt = 384;
+    this->global_km = 40;
     this->ysouth_mht = -80.0;
     this->ynorth_mht =  80.0;
     this->dy_mht = 1.0;
@@ -580,11 +735,17 @@ public:
     this->grid_file = "";
     this->u_file = "";
     this->v_file = "";
-    this->do_global = true;
-    this->do_atl = true;
-    this->do_indopac = true;
-    this->do_msf = true;
-    this->do_mht = true;
+    this->uet_file = "";
+    this->vnt_file = "";
+    this->u_first_record = 0;
+    this->v_first_record = 0;
+    this->uet_first_record = 0;
+    this->vnt_first_record = 0;
+    this->do_global = false;
+    this->do_atl = false;
+    this->do_indopac = false;
+    this->do_msf = false;
+    this->do_mht = false;
     this->use_pbc = false;
     this->byteswap = false;
   }
@@ -594,10 +755,13 @@ public:
   void Serialize(vtkMultiProcessStream& data)
   {
     data.Reset();
-    data << this->imt << this->jmt << this->km;
+    data << this->global_imt << this->global_jmt << this->global_km;
     data << this->ysouth_mht << this->ynorth_mht << this->dy_mht;
     data << this->kmt_global_file << this->kmt_atl_file << this->kmt_indopac_file;
     data << this->in_depths << this->grid_file << this->u_file << this->v_file;
+    data << this->uet_file << this->vnt_file;
+    data << this->u_first_record << this->v_first_record;
+    data << this->uet_first_record << this->vnt_first_record;
     data << static_cast<int>(this->do_global) << static_cast<int>(this->do_atl);
     data << static_cast<int>(this->do_indopac) << static_cast<int>(this->do_msf);
     data << static_cast<int>(this->do_mht) << static_cast<int>(this->use_pbc);
@@ -607,10 +771,13 @@ public:
   // set the values from data in the internal variables.
   void Deserialize(vtkMultiProcessStream& data)
   {
-    data >> this->imt >> this->jmt >> this->km;
+    data >> this->global_imt >> this->global_jmt >> this->global_km;
     data >> this->ysouth_mht >> this->ynorth_mht >> this->dy_mht;
     data >> this->kmt_global_file >> this->kmt_atl_file >> this->kmt_indopac_file;
     data >> this->in_depths >> this->grid_file >> this->u_file >> this->v_file;
+    data >> this->uet_file >> this->vnt_file;
+    data >> this->u_first_record >> this->v_first_record;
+    data >> this->uet_first_record >> this->vnt_first_record;
     int tmp;
     data >> tmp;
     this->do_global = static_cast<bool>(tmp);
@@ -628,9 +795,9 @@ public:
     this->byteswap = static_cast<bool>(tmp);
   }
 
-  int imt;                     // size of grid in x dimension
-  int jmt;                     // size of grid in y dimension
-  int km;                      // size of grid in z dimension
+  int global_imt;                     // size of grid in x dimension
+  int global_jmt;                     // size of grid in y dimension
+  int global_km;                      // size of grid in z dimension
   float ysouth_mht;            // min latitude to compute moc over
   float ynorth_mht;            // max latitude to compute moc over
   float dy_mht;                // step size of each latitude row in moc
@@ -641,6 +808,12 @@ public:
   std::string grid_file;            // grid information
   std::string u_file;               // u-velocities
   std::string v_file;               // v-velocities
+  std::string uet_file;             // for MHT computation
+  std::string vnt_file;             // for MHT computation
+  int u_first_record;           // where the u-velocities start in the file
+  int v_first_record;           // where the v-velocities start in the file
+  int uet_first_record;         // where the u-velocities start in the file
+  int vnt_first_record;         // where the v-velocities start in the file
   bool do_global;              // compute global quantities
   bool do_atl;                 // compute atlantic quantities
   bool do_indopac;             // compute indian-pacific quantities
@@ -650,8 +823,73 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
-// TODO: change to vtk coding style
+class InternalMHTWorkArrays
+{
+// The default constructor and destructor should be sufficient.
+public:
+  Matrix2DFloat Work1;
+  Matrix2DFloat WorkY;
+  void Clear()
+  {
+    this->Work1.Clear();
+    this->WorkY.Clear();
+  }
+  void Compute(int imt, int jmt, int km, bool use_pbc, Matrix3DFloat& uet,
+               Matrix3DFloat& vnt, Matrix2DFloat& tarea, Matrix3DFloat& dzt,
+               Matrix1DFloat& dz);
+  bool IsComputed()
+  {
+    return (this->Work1.GetData() != NULL);
+  }
+};
 
+void InternalMHTWorkArrays::Compute(
+  int global_imt, int global_jmt, int global_km, bool use_pbc, Matrix3DFloat& uet,
+  Matrix3DFloat& vnt, Matrix2DFloat& tarea, Matrix3DFloat& dzt, Matrix1DFloat& dz)
+{
+  this->Work1.Allocate(global_imt, global_jmt);
+  this->WorkY.Allocate(global_imt, global_jmt);
+
+  Matrix2DFloat workX(global_imt, global_jmt);
+
+  for(int i=0; i<global_jmt*global_imt; i++)
+    {
+    workX(i) = 0.0;
+    this->WorkY(i) = 0.0;
+    }
+
+  // vertical integration of workX and this->WorkY
+  for(int k=0; k < global_km; k++)
+    {
+    for (int j=0; j<global_jmt; j++)
+      {
+      for (int i=0; i<global_imt; i++)
+        {
+        if(use_pbc)
+          {
+          workX(i,j) += uet(i,j,k)*tarea(i,j)*dzt(i,j,k)*4.186e-15;
+          this->WorkY(i,j) += vnt(i,j,k)*tarea(i,j)*dzt(i,j,k)*4.186e-15;
+          }
+        else
+          {
+          workX(i,j) += uet(i,j,k)*tarea(i,j)*dz(k)*4.186e-15;
+          this->WorkY(i,j) += vnt(i,j,k)*tarea(i,j)*dz(k)*4.186e-15;
+          }
+        }
+      }
+    }
+
+  // find divergence of vertically-integrated heat transport
+  for(int i=0; i<global_imt; i++)
+    {
+    for(int j=0; j<global_jmt; j++)
+      {
+      int i2 = vtkMOCReader::cshift(i, -1, global_imt);
+      int j2 = vtkMOCReader::cshift(j, -1, global_jmt);
+      this->Work1(i,j) = workX(i,j) - workX(i2,j) + this->WorkY(i,j) - this->WorkY(i,j2);
+      }
+    }
+}
 
 vtkStandardNewMacro(vtkMOCReader);
 
@@ -663,12 +901,20 @@ vtkMOCReader::vtkMOCReader()
   this->FileName = 0;
   this->SetNumberOfInputPorts(0);
   this->SetNumberOfOutputPorts(1);
+  this->MHTWorkArrays = new InternalMHTWorkArrays;
+  this->GlobalIMT0 = VTK_INT_MIN;
+  this->GlobalJMT0 = VTK_INT_MIN;
 }
 
 //-----------------------------------------------------------------------------
 vtkMOCReader::~vtkMOCReader()
 {
   this->SetFileName(0);
+  if(this->MHTWorkArrays)
+    {
+    delete this->MHTWorkArrays;
+    this->MHTWorkArrays = NULL;
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -711,15 +957,15 @@ int vtkMOCReader::RequestInformation(vtkInformation *vtkNotUsed(request),
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
 
   MOCInfo mocInfo;
-  int retval = this->ParseHeader(this->FileName, &mocInfo);
+  int retval = this->ParseMetaFile(this->FileName, &mocInfo);
   if(retval == 0)
     {
     return 0;
     }
 
-  int y, z;
-  this->GetMOCSize(&mocInfo, &y, &z);
-  int ext[6] = {0, y-1, 0, z-1, 0, 0};
+  int ny_mht, z;
+  this->GetMOCSize(&mocInfo, &ny_mht, &z);
+  int ext[6] = {0, ny_mht-1, 0, z-1, 0, 0};
   outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
 
   return 1;
@@ -730,20 +976,18 @@ int vtkMOCReader::CanReadFile(const char* fname )
 {
   // return 1 for success, return 0 for failure
   MOCInfo mocInfo;
-  return this->ParseHeader(fname, &mocInfo);
+  return this->ParseMetaFile(fname, &mocInfo);
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::ParseHeader(const char* fileName, MOCInfo* mocInfo)
+int vtkMOCReader::ParseMetaFile(const char* fileName, MOCInfo* mocInfo)
 {
-  vtkNew<vtkTimerLog> timer;
-  timer->StartTimer();
   int retVal = 1;
   vtkMultiProcessController* controller =
     vtkMultiProcessController::GetGlobalController();
   if(controller->GetLocalProcessId() == 0)
     {
-    retVal = this->SingleProcessParseHeader(fileName, mocInfo);
+    retVal = this->SingleProcessParseMetaFile(fileName, mocInfo);
     }
   if(controller->GetNumberOfProcesses() > 1)
     {
@@ -758,13 +1002,11 @@ int vtkMOCReader::ParseHeader(const char* fileName, MOCInfo* mocInfo)
       mocInfo->Deserialize(data);
       }
     }
-  timer->StopTimer();
-  cerr << controller->GetLocalProcessId() << " has PARSEHEADER time of " << timer->GetElapsedTime() << endl;
   return retVal;
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::SingleProcessParseHeader(
+int vtkMOCReader::SingleProcessParseMetaFile(
   const char* fileName, MOCInfo* mocInfo)
 {
   // parses a namelist header file.
@@ -821,7 +1063,7 @@ int vtkMOCReader::SingleProcessParseHeader(
       {
       std::string equal;
       line2 >> equal;
-      line2 >> mocInfo->imt;
+      line2 >> mocInfo->global_imt;
       retval = checkParse(line, line2.rdstate());
       if(retval == 0)
         {
@@ -832,7 +1074,7 @@ int vtkMOCReader::SingleProcessParseHeader(
       {
       std::string equal;
       line2 >> equal;
-      line2 >> mocInfo->jmt;
+      line2 >> mocInfo->global_jmt;
       retval = checkParse(line, line2.rdstate());
       if(retval == 0)
         {
@@ -843,7 +1085,7 @@ int vtkMOCReader::SingleProcessParseHeader(
       {
       std::string equal;
       line2 >> equal;
-      line2 >> mocInfo->km;
+      line2 >> mocInfo->global_km;
       retval = checkParse(line, line2.rdstate());
       if(retval == 0)
         {
@@ -881,6 +1123,26 @@ int vtkMOCReader::SingleProcessParseHeader(
       if(retval == 0)
         {
         return 0;
+        }
+      }
+    if(name.compare("do_msf") == 0)
+      {
+      std::string equal, dostr;
+      line2 >> equal;
+      line2 >> dostr;
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      dostr = dostr.substr(1, dostr.length()-2);
+      if(dostr[0] == 'f' || dostr[0] == 'F')
+        {
+        mocInfo->do_msf = false;
+        }
+      if(dostr[0] == 't' || dostr[0] == 'T')
+        {
+        mocInfo->do_msf = true;
         }
       }
     if(name.compare("kmt_global_file") == 0)
@@ -1118,7 +1380,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   //        ext[0], ext[1], ext[2], ext[3], ext[4], ext[5]);
 
   MOCInfo mocInfo;
-  int retval = this->ParseHeader(this->FileName, &mocInfo);
+  int retval = this->ParseMetaFile(this->FileName, &mocInfo);
   if(retval == 0)
     {
     return 0;
@@ -1131,9 +1393,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   int numberOfProcesses =
     vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses();
   vtkNew<vtkExtentTranslator> translator;
-  translator->SetWholeExtent(0, mocInfo.imt-1,
-                             0, mocInfo.jmt-1,
-                             0, mocInfo.km-1);
+  translator->SetWholeExtent(0, mocInfo.global_imt-1,
+                             0, mocInfo.global_jmt-1,
+                             0, mocInfo.global_km-1);
   translator->SetNumberOfPieces(numberOfProcesses);
   translator->SetGhostLevel(0);
   int numberOfSplits = sqrt(numberOfProcesses)+1;
@@ -1148,6 +1410,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   translator->GetExtent(real_ext3D);
   translator->GetExtent(ext3D);
   translator->GetExtent(ext3D2);
+  // store the minimum 
+  this->GlobalIMT0 = real_ext3D[0];
+  this->GlobalJMT0 = real_ext3D[2];
 
   // printf("proc[%i]: data extents [%i %i %i %i %i %i]\n", rank, ext3D[0],
   //        ext3D[1], ext3D[2], ext3D[3], ext3D[4], ext3D[5]);
@@ -1155,6 +1420,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   // the size of the data block i have
   int imt = ext3D[1] - ext3D[0] + 1;
   int jmt = ext3D[3] - ext3D[2] + 1;
+  // we only partition in logical x and y so km should be equal to mocInfo.global_km
   int km = ext3D[5] - ext3D[4] + 1;
 
   // add ghost cells to x and y dimension. if on the border, need to wrap
@@ -1162,7 +1428,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   imt += 2;
   jmt += 2;
   ext3D[0]--;
-  if(ext3D[1] == mocInfo.imt-1)
+  if(ext3D[1] == mocInfo.global_imt-1)
     {
     ext3D[1] = -1;
     }
@@ -1171,7 +1437,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     ext3D[1]++;
     }
   ext3D[2]--;
-  if(ext3D[3] == mocInfo.jmt-1)
+  if(ext3D[3] == mocInfo.global_jmt-1)
     {
     ext3D[3] = -1;
     }
@@ -1181,7 +1447,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     }
   // second layer of ghost cells
   ext3D2[0] = ext3D[0] - 1;
-  if(ext3D[1] == mocInfo.imt-1)
+  if(ext3D[1] == mocInfo.global_imt-1)
     {
     ext3D2[1] = -1;
     }
@@ -1194,7 +1460,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     ext3D2[1] = ext3D[1] + 1;
     }
   ext3D2[2] = ext3D[2] - 1;
-  if(ext3D[3] == mocInfo.jmt-1)
+  if(ext3D[3] == mocInfo.global_jmt-1)
     {
     ext3D2[3] = -1;
     }
@@ -1301,19 +1567,67 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   float southern_lat = -1000;
   this->FindSouthern(imt, jmt, ext3D, real_ext3D, global_kmt, tLat,
                      &local_jj, &has_global_jj, &southern_lat);
-  // made up stuff for meridional_heat()
-  Matrix2DFloat worky(0,0);
-  Matrix2DFloat work1(0,0);
-  Matrix1DFloat mht_temp(0);
+
+  // clear out temporary MHT work arrays since we don't know if they're
+  // valid.
+  this->MHTWorkArrays->Clear();
+  if(mocInfo.do_mht && (mocInfo.do_global || mocInfo.do_atl || mocInfo.do_indopac) )
+    {
+    Matrix3DFloat uet(imt, jmt, km);
+    Matrix3DFloat vnt(imt, jmt, km);
+    FILE* f = fopen(mocInfo.uet_file.c_str(), "rb");
+    if(f == NULL)
+      {
+      vtkErrorMacro("Error in opening uet_file: " << mocInfo.uet_file);
+      return 0;
+      }
+    retval = seekFile(f, mocInfo.uet_first_record, imt, jmt);
+    if(retval != 0)
+      {
+      vtkErrorMacro("Error during file seek for uet_file: " << mocInfo.uet_file);
+      return 0;
+      }
+    fread(uet.GetData(), sizeof(float), imt*jmt*km, f);
+    fclose(f);
+
+    // read in vnt
+    f = fopen(mocInfo.vnt_file.c_str(), "rb");
+    if(f == NULL)
+      {
+      vtkErrorMacro("Error in opening vnt_file: " << mocInfo.vnt_file);
+      return 0;
+      }
+    retval = seekFile(f, mocInfo.vnt_first_record, imt, jmt);
+    if(retval != 0)
+      {
+      vtkErrorMacro("Error during file seek for vnt_file: " << mocInfo.vnt_file);
+      return 0;
+      }
+    fread(vnt.GetData(), sizeof(float), imt*jmt*km, f);
+    fclose(f);
+
+    if(mocInfo.byteswap)
+      {
+      uet.ByteSwap();
+      vnt.ByteSwap();
+      }
+
+    Matrix3DFloat dzt(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt
+    this->MHTWorkArrays->Compute(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km,
+                                 mocInfo.use_pbc, uet, vnt, tarea, dzt, dz);
+    }
+
+// made up stuff for meridional_heat()
+  Matrix1DFloat mht_temp;
   Matrix3DFloat dzu(imt, jmt, km);
   int jj = -1;
 
 
 
 
-  // calculate overturning streamfunctions
+// calculate overturning streamfunctions
 
-  // first do global
+// first do global
   if(mocInfo.do_global)
     {
     if(mocInfo.do_msf)
@@ -1332,11 +1646,11 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      //this->meridional_heat(&mocInfo, global_kmt, tLat, lat_mht, ny_mht, jj, southern_lat, worky, work1, mht_temp);
+      this->meridional_heat(&mocInfo, global_kmt, tLat, lat_mht, ny_mht, jj, southern_lat, mht_temp);
       }
     }
 
-  // next do atlantic
+// next do atlantic
   if(mocInfo.do_atl)
     {
     if(mocInfo.do_msf)
@@ -1358,7 +1672,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       }
     }
 
-  // now do indo-pacific
+// now do indo-pacific
   if(mocInfo.do_indopac)
     {
     if(mocInfo.do_msf)
@@ -1380,7 +1694,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       }
     }
 
-  // calculate depth
+// calculate depth
   Matrix1DFloat depth(km);
   depth(0) = 0.0;
   for(int k=1; k<km; k++)
@@ -1392,7 +1706,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     depth(k) = depth(k) * 0.01;  // convert to m
     }
 
-  // these arrays determine the coordinate positions of the grid
+// these arrays determine the coordinate positions of the grid
   vtkNew<vtkFloatArray> x_coords;
   x_coords->SetNumberOfTuples(ext[1]-ext[0]+1);
   for(int i=ext[0]; i<=ext[1]; i++)
@@ -1415,8 +1729,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   grid->SetYCoordinates(y_coords.GetPointer());
   grid->SetZCoordinates(z_coords.GetPointer());
 
-  // TODO: change the array names
-  // copy output. remember to only copy the part we want.
+// TODO: change the array names
+// copy output. remember to only copy the part we want.
   if(mocInfo.do_global)
     {
     vtkNew<vtkFloatArray> data;
@@ -1678,34 +1992,34 @@ void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
   double wtkb;
 
   for(i=0; i<imt*jmt; i++)
-  {
+    {
     wtkb = 0.0; // set bottom velocity to zero
-  }
+    }
 
   for(j=0; j<jmt; j++)
-  {
+    {
     jm1 = j - 1;
     if(j==0)
-    {
+      {
       // make the value wrap around, which differs from the fortran code
       //jm1 = jmt-1;
       jm1 = 0;  // fortran code
-    }
+      }
 
     for(i=0; i<imt; i++)
-    {
+      {
       im1 = i - 1;
       if(i==0)
-      {
+        {
         im1 = imt-1;
-      }
+        }
 
       wtkb = 0.0;  // vertical velocity is zero at bottom of cell
 
       if(kmt(i,j) != 0)
-      {
-        for(k=kmt(i,j)-1; k>=0; k--)
         {
+        for(k=kmt(i,j)-1; k>=0; k--)
+          {
           // advection fluxes
           fue = p5 * (u(i,j  ,k) * dyu(i,j  ) * dzu(i,j  ,k) +
                       u(i,jm1,k) * dyu(i,jm1) * dzu(i,jm1,k));
@@ -1724,10 +2038,10 @@ void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
 
           // top value becomes bottom for next pass
           wtkb = w(i,j,k);
+          }
         }
       }
     }
-  }
 
 
   printf("done calculating w\n");
@@ -1742,13 +2056,13 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
 {
   // calculates the meridional overturning circulation
   Matrix2DFloat work(imt, jmt);
-  Matrix1DFloat psi0(mocInfo->km);
+  Matrix1DFloat psi0(mocInfo->global_km);
   // initialize psi array
-  for(int i=0; i<mocInfo->km*ny; i++)
+  for(int i=0; i<mocInfo->global_km*ny; i++)
     {
     psi(i) = 0.0;
     }
-  for(int k=0; k<mocInfo->km; k++)
+  for(int k=0; k<mocInfo->global_km; k++)
     {
     psi0(k) = 0.0;
     }
@@ -1773,26 +2087,26 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       {
       if(mocInfo->use_pbc)
         {
-        work(i,local_jj-1) = -dzu(i,local_jj,mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
+        work(i,local_jj-1) = -dzu(i,local_jj,mocInfo->global_km-1) * v(i,local_jj-1,mocInfo->global_km-1) * dxu(i,local_jj-1);
         }
       else
         {
-        work(i,local_jj-1) = -dz(mocInfo->km-1) * v(i,local_jj-1,mocInfo->km-1) * dxu(i,local_jj-1);
+        work(i,local_jj-1) = -dz(mocInfo->global_km-1) * v(i,local_jj-1,mocInfo->global_km-1) * dxu(i,local_jj-1);
         }
       }
 
-    psi0(mocInfo->km-1) = 0.0;
+    psi0(mocInfo->global_km-1) = 0.0;
     for(int i=1; i<imt-1; i++)
       {
       int j2 = cshift(local_jj-1, 1, jmt);
       if(kmtb(i,local_jj-1) == 0 && kmtb(i, j2) > 0)
         {
-        psi0(mocInfo->km-1) += work(i,local_jj-1);
+        psi0(mocInfo->global_km-1) += work(i,local_jj-1);
         }
       }
     }
 
-  for(int k=mocInfo->km-1; k>=1; k--)
+  for(int k=mocInfo->global_km-1; k>=1; k--)
     {
     if(has_global_jj)
       {
@@ -1819,11 +2133,11 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       }
     psi0(k-1) += psi0(k);
     }
-  Matrix1DFloat tempArray(mocInfo->km);
-  controller->Reduce(psi0.GetData(), tempArray.GetData(), mocInfo->km,
+  Matrix1DFloat tempArray(mocInfo->global_km);
+  controller->Reduce(psi0.GetData(), tempArray.GetData(), mocInfo->global_km,
                      vtkCommunicator::SUM_OP, 0);
 
-  for(int k=0; k<mocInfo->km; k++)
+  for(int k=0; k<mocInfo->global_km; k++)
     {
     psi0(k) = tempArray(k);
     }
@@ -1832,7 +2146,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // psi(k,j) holds the moc value of depth k and lat j
   // compute my local moc
   std::vector<moc_point_t> points(imt*jmt);
-  for(int k=0; k<mocInfo->km; k++)
+  for(int k=0; k<mocInfo->global_km; k++)
     {
     // first scan through all points of the layer and find all valid points
     // which are not land. record the latitude of the point as well as its
@@ -1881,8 +2195,8 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // use a tree structure to send local mocs to parent node.
   // composite mocs from children and then send to parent.
   // final moc is gathered at the root, process 0.
-  Matrix2DFloat psi_temp(mocInfo->km, ny);
-  controller->Reduce(psi.GetData(), psi_temp.GetData(), ny*mocInfo->km, vtkCommunicator::SUM_OP, 0);
+  Matrix2DFloat psi_temp(mocInfo->global_km, ny);
+  controller->Reduce(psi.GetData(), psi_temp.GetData(), ny*mocInfo->global_km, vtkCommunicator::SUM_OP, 0);
 
   // at this point process 0 should have the accumulated moc,
   // perform some more processing to get final moc.
@@ -1890,7 +2204,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     {
     for(int j=0; j<ny; j++)
       {
-      for(int k=0; k<mocInfo->km; k++)
+      for(int k=0; k<mocInfo->global_km; k++)
         {
         psi(k,j) = psi_temp(k,j);
         }
@@ -1900,7 +2214,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       {
       if(lats(j) >= southern_lat)
         {
-        for(int k=0; k<mocInfo->km; k++)
+        for(int k=0; k<mocInfo->global_km; k++)
           {
           psi(k,j) += psi0(k);
           }
@@ -1910,21 +2224,21 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     // smooth grid-point noise over y
     for(int j=1; j<ny-1; j++)
       {
-      for(int k=0; k<mocInfo->km; k++)
+      for(int k=0; k<mocInfo->global_km; k++)
         {
         psi(k,j) = 0.25*(psi(k,j-1) + psi(k,j+1)) + 0.5*psi(k,j);
         }
       }
 
     // normalize to Sv
-    for(int i=0; i<mocInfo->km*ny; i++)
+    for(int i=0; i<mocInfo->global_km*ny; i++)
       {
       psi(i) *= 1e-12;
       }
 
     float special_value = -1e34;
     // replace any zeroes with the special value
-    for(int i=0; i<mocInfo->km*ny; i++)
+    for(int i=0; i<mocInfo->global_km*ny; i++)
       {
       if(psi(i) == 0.0)
         {
@@ -1934,18 +2248,17 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     }
 
   // process 0 broadcasts results to everyone
-  controller->Broadcast(psi.GetData(), ny*mocInfo->km, 0);
+  controller->Broadcast(psi.GetData(), ny*mocInfo->global_km, 0);
 }
 
 //-----------------------------------------------------------------------------
 void vtkMOCReader::meridional_heat(
   MOCInfo* mocInfo,
-  Matrix2DInt& kmtb, Matrix2DFloat& tLat,
-  Matrix1DFloat& lats, int ny, int jj, float southern_lat,
-  Matrix2DFloat& worky, Matrix2DFloat& work1,
+  Matrix2DInt& global_kmt, Matrix2DFloat& tLat,
+  Matrix1DFloat& lat_mht, int ny_mht, int jj, float southern_lat,
   Matrix1DFloat& mht)
 {
-  for(int i=0; i<ny; i++)
+  for(int i=0; i<ny_mht; i++)
     {
     mht(i) = 0.0;
     }
@@ -1953,71 +2266,63 @@ void vtkMOCReader::meridional_heat(
   printf("southernmost j = %i\n", jj);
   printf("southernmost lat = %f\n", southern_lat);
 
-  // zonal integration to find heat transport
+  // zonal (over longitude range) integration to find heat transport
   // across southernmost grid circle in basin
-  float mht0 = 0.0;
+  float global_mht0 = 0.0;
   int j = jj-1;
-  int j2 = cshift(j, 1, mocInfo->jmt);
-  for(int i=0; i<mocInfo->imt; i++)
+  int j2 = cshift(j, 1, mocInfo->global_jmt);
+  for(int i=0; i<mocInfo->global_imt; i++)
     {
-    if(kmtb(i,j) == 0 && kmtb(i,j2) > 0)
+    if(global_kmt(i,j) == 0 && global_kmt(i,j2) > 0)
       {
-      mht0 += worky(i,j);
+      global_mht0 += this->MHTWorkArrays->WorkY(i,j);
       }
     }
 
-  printf("mht0: %f \n", mht0);
+  printf("mht0: %f \n", global_mht0);
 
   // optimized way to find mht
   // scan through all points of the layer and find all valid points
   // which are not land. record the latitude of the point as well as its work
   // value
-  moc_mht_point_t* points = new moc_mht_point_t[mocInfo->imt*mocInfo->jmt];
-  int npoints = 0;
-  for(int i=0; i<mocInfo->imt*mocInfo->jmt; i++)
+  std::vector<moc_mht_point_t> points;
+  for(int i=0; i<mocInfo->global_imt*mocInfo->global_jmt; i++)
     {
-    if(kmtb(i) > 0)
+    if(global_kmt(i) > 0)
       {
-      points[npoints].work = work1(i);
-      points[npoints].lat = tLat(i);
-      npoints++;
+      points.push_back(moc_mht_point_t(this->MHTWorkArrays->Work1(i), tLat(i)));
       }
     }
 
   // sort all points by their latitude
-  qsort(points, npoints, sizeof(moc_mht_point_t), compare_latitude);
+  qsort(&points[0], points.size(), sizeof(moc_mht_point_t), compare_latitude);
 
   // step through latitude from the bottom up, accumulating all points with are
   // less than or equal to the current latitude. keep track of where in the
   // points array the accumulation has gone to. start each search through the
   // points at the point where we left off before.
-  int index = 0; // the current place of the points array
-  for(j=0; j<ny; j++)
+  size_t index = 0; // the current place of the points array
+  for(j=0; j<ny_mht; j++)
     {
     if(j > 0)
       {
       mht(j) = mht(j-1);
       }
-    float lats_j = lats(j);
-    while(index < npoints && points[index].lat < lats_j)
+    while(index < points.size() && points[index].lat < lat_mht(j))
       {
       mht(j) += points[index].work;
       index++;
       }
     }
 
-  for(j=0; j<ny; j++)
+  for(j=0; j<ny_mht; j++)
     {
-    if(lats(j) > southern_lat)
+    if(lat_mht(j) > southern_lat)
       {
-      mht(j) += mht0;
+      mht(j) += global_mht0;
       }
     }
-
-  delete[] points;
 }
-
-
 
 //-----------------------------------------------------------------------------
 int vtkMOCReader::cshift(int i, int offset, int size)
@@ -2036,7 +2341,7 @@ int vtkMOCReader::cshift(int i, int offset, int size)
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::GetMOCSize(MOCInfo* mocInfo, int* y, int* z)
+void vtkMOCReader::GetMOCSize(MOCInfo* mocInfo, int* ny_mht, int* z)
 {
   // calculates the final size of the moc array.
   // note that when moc is usually
@@ -2044,9 +2349,8 @@ void vtkMOCReader::GetMOCSize(MOCInfo* mocInfo, int* y, int* z)
   // (depth) is usually shown along the vertical axis
 
   float temp = ((mocInfo->ynorth_mht - mocInfo->ysouth_mht) / mocInfo->dy_mht);
-  int ny_mht = floor(temp + 0.5) + 1;
-  *y = ny_mht;
-  *z = mocInfo->km;
+  *ny_mht = floor(temp + 0.5) + 1;
+  *z = mocInfo->global_km;
 }
 
 //-----------------------------------------------------------------------------
@@ -2066,7 +2370,7 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
   // load data from disk
 
   // uLat
-  int offset = mocInfo->imt * mocInfo->jmt * 0;
+  int offset = mocInfo->global_imt * mocInfo->global_jmt * 0;
   this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D, offset,
                               imt, jmt, uLat);
 
@@ -2075,17 +2379,17 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
   //      << " " << ext3D[3] << endl;
 
   // uLong
-  offset = mocInfo->imt * mocInfo->jmt * 1;
+  offset = mocInfo->global_imt * mocInfo->global_jmt * 1;
   this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D, offset,
                               imt, jmt, uLong);
 
   // htn
-  offset = mocInfo->imt * mocInfo->jmt * 2;
+  offset = mocInfo->global_imt * mocInfo->global_jmt * 2;
   this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2, offset,
                                imt2, jmt2, htn);
 
   // hte
-  offset = mocInfo->imt * mocInfo->jmt * 3;
+  offset = mocInfo->global_imt * mocInfo->global_jmt * 3;
   this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2, offset,
                                imt2, jmt2, hte);
 
@@ -2231,7 +2535,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     {
     // get to correct place in file
     int total_offset = (offset +
-                        (y_start_file + y) * mocInfo->imt +
+                        (y_start_file + y) * mocInfo->global_imt +
                         x_start_file) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, y_start+y), sizeof(double), row_length, f);
@@ -2246,8 +2550,8 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
       {
       // get to correct place in file
       int total_offset = (offset +
-                          (y_start_file + y) * mocInfo->imt +
-                          mocInfo->imt-1) * sizeof(double);
+                          (y_start_file + y) * mocInfo->global_imt +
+                          mocInfo->global_imt-1) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, y_start+y), sizeof(double), 1, f);
       }
@@ -2260,7 +2564,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
       {
       // get to correct place in file
       int total_offset = (offset +
-                          (y_start_file + y) * mocInfo->imt +
+                          (y_start_file + y) * mocInfo->global_imt +
                           0) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(imt-1, y_start+y), sizeof(double), 1, f);
@@ -2271,7 +2575,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     // bottom ghost cells wrap around
     // copy values of the row over
     int total_offset = (offset +
-                        (mocInfo->jmt-1)*mocInfo->imt +
+                        (mocInfo->global_jmt-1)*mocInfo->global_imt +
                         x_start_file) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, 0), sizeof(double), row_length, f);
@@ -2292,8 +2596,8 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     {
     // lower left corner needs upper right value
     int total_offset = (offset +
-                        (mocInfo->jmt-1)*mocInfo->imt +
-                        mocInfo->imt-1) * sizeof(double);
+                        (mocInfo->global_jmt-1)*mocInfo->global_imt +
+                        mocInfo->global_imt-1) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, 0), sizeof(double), 1, f);
     }
@@ -2302,7 +2606,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     // upper left corner needs lower right value
     int total_offset = (offset +
                         0 +
-                        mocInfo->imt-1) * sizeof(double);
+                        mocInfo->global_imt-1) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, jmt-1), sizeof(double), 1, f);
     }
@@ -2310,7 +2614,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     {
     // lower right corner needs upper left value
     int total_offset = (offset +
-                        (mocInfo->jmt-1)*mocInfo->imt +
+                        (mocInfo->global_jmt-1)*mocInfo->global_imt +
                         0) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(imt-1, 0), sizeof(double), 1, f);
@@ -2398,7 +2702,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     {
     // get to correct place in file
     int total_offset = (offset +
-                        (y_start_file + y) * mocInfo->imt +
+                        (y_start_file + y) * mocInfo->global_imt +
                         x_start_file) * sizeof(double);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, y_start+y), sizeof(double), row_length, f);
@@ -2415,8 +2719,8 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
         {
         // get to correct place in file
         int total_offset = (offset +
-                            (y_start_file + y) * mocInfo->imt +
-                            mocInfo->imt-1-x) * sizeof(double);
+                            (y_start_file + y) * mocInfo->global_imt +
+                            mocInfo->global_imt-1-x) * sizeof(double);
         fseek(f, total_offset, SEEK_SET);
         fread(&data(x_start-1-x, y_start+y), sizeof(double), 1, f);
         }
@@ -2432,7 +2736,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
         {
         // get to correct place in file
         int total_offset = (offset +
-                            (y_start_file + y) * mocInfo->imt +
+                            (y_start_file + y) * mocInfo->global_imt +
                             x) * sizeof(double);
         fseek(f, total_offset, SEEK_SET);
         fread(&data(x_end+1+x, y_start+y), sizeof(double), 1, f);
@@ -2446,7 +2750,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     for(int y=0; y<abs(ext3D[2]); y++)
       {
       int total_offset = (offset +
-                          (mocInfo->jmt-1-y)*mocInfo->imt +
+                          (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
                           x_start_file) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(x_start, y_start-1-y), sizeof(double), row_length, f);
@@ -2473,8 +2777,8 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     for(int y=0; y<abs(ext3D[2]); y++)
       {
       int total_offset = (offset +
-                          (mocInfo->jmt-1-y)*mocInfo->imt +
-                          mocInfo->imt+ext3D[0]) * sizeof(double);
+                          (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
+                          mocInfo->global_imt+ext3D[0]) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, y_start-1-y), sizeof(double), abs(ext3D[0]), f);
       }
@@ -2486,7 +2790,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
       {
       int total_offset = (offset +
                           y +
-                          mocInfo->imt+ext3D[0]) * sizeof(double);
+                          mocInfo->global_imt+ext3D[0]) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, y_end+1+y), sizeof(double), abs(ext3D[0]), f);
       }
@@ -2497,7 +2801,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     for(int y=0; y<abs(ext3D[2]); y++)
       {
       int total_offset = (offset +
-                          (mocInfo->jmt-1-y)*mocInfo->imt +
+                          (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
                           0) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(imt+ext3D[1], y_start-1-y), sizeof(double), abs(ext3D[1]), f);
@@ -2586,7 +2890,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   for(int y=0; y<col_length; y++)
     {
     // get to correct place in file
-    int total_offset = ((y_start_file + y) * mocInfo->imt +
+    int total_offset = ((y_start_file + y) * mocInfo->global_imt +
                         x_start_file) * sizeof(int);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, y_start+y), sizeof(int), row_length, f);
@@ -2600,8 +2904,8 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     for(int y=0; y<col_length; y++)
       {
       // get to correct place in file
-      int total_offset = ((y_start_file + y) * mocInfo->imt +
-                          mocInfo->imt-1) * sizeof(int);
+      int total_offset = ((y_start_file + y) * mocInfo->global_imt +
+                          mocInfo->global_imt-1) * sizeof(int);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, y_start+y), sizeof(int), 1, f);
       }
@@ -2613,7 +2917,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     for(int y=0; y<col_length; y++)
       {
       // get to correct place in file
-      int total_offset = ((y_start_file + y) * mocInfo->imt +
+      int total_offset = ((y_start_file + y) * mocInfo->global_imt +
                           0) * sizeof(int);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(imt-1, y_start+y), sizeof(int), 1, f);
@@ -2623,7 +2927,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     {
     // bottom ghost cells wrap around
     // copy values of the row over
-    int total_offset = ((mocInfo->jmt-1)*mocInfo->imt +
+    int total_offset = ((mocInfo->global_jmt-1)*mocInfo->global_imt +
                         x_start_file) * sizeof(int);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, 0), sizeof(int), row_length, f);
@@ -2642,8 +2946,8 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   if(ext3D[0] == -1 && ext3D[2] == -1)
     {
     // lower left corner needs upper right value
-    int total_offset = ((mocInfo->jmt-1)*mocInfo->imt +
-                        mocInfo->imt-1) * sizeof(int);
+    int total_offset = ((mocInfo->global_jmt-1)*mocInfo->global_imt +
+                        mocInfo->global_imt-1) * sizeof(int);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, 0), sizeof(int), 1, f);
     }
@@ -2651,14 +2955,14 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     {
     // upper left corner needs lower right value
     int total_offset = (0 +
-                        mocInfo->imt-1) * sizeof(int);
+                        mocInfo->global_imt-1) * sizeof(int);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, jmt-1), sizeof(int), 1, f);
     }
   if(ext3D[1] == -1 && ext3D[2] == -1)
     {
     // lower right corner needs upper left value
-    int total_offset = ((mocInfo->jmt-1)*mocInfo->imt +
+    int total_offset = ((mocInfo->global_jmt-1)*mocInfo->global_imt +
                         0) * sizeof(int);
     fseek(f, total_offset, SEEK_SET);
     fread(&data(imt-1, 0), sizeof(int), 1, f);
@@ -2745,8 +3049,8 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     for(int y=0; y<col_length; y++)
       {
       // get to correct place in file
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                          (y_start_file + y) * mocInfo->imt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                          (y_start_file + y) * mocInfo->global_imt +
                           x_start_file) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(x_start, y_start+y, z), sizeof(float), row_length, f);
@@ -2763,9 +3067,9 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       for(int y=0; y<col_length; y++)
         {
         // get to correct place in file
-        int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                            (y_start_file + y) * mocInfo->imt +
-                            mocInfo->imt-1) * sizeof(float);
+        int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                            (y_start_file + y) * mocInfo->global_imt +
+                            mocInfo->global_imt-1) * sizeof(float);
         fseek(f, total_offset, SEEK_SET);
         fread(&data(0, y_start+y, z), sizeof(float), 1, f);
         }
@@ -2780,8 +3084,8 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       for(int y=0; y<col_length; y++)
         {
         // get to correct place in file
-        int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                            (y_start_file + y) * mocInfo->imt +
+        int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                            (y_start_file + y) * mocInfo->global_imt +
                             0) * sizeof(float);
         fseek(f, total_offset, SEEK_SET);
         fread(&data(imt-1, y_start+y, z), sizeof(float), 1, f);
@@ -2794,8 +3098,8 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // copy values of the row over
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                          (mocInfo->jmt-1)*mocInfo->imt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                          (mocInfo->global_jmt-1)*mocInfo->global_imt +
                           x_start_file) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(x_start, 0, z), sizeof(float), row_length, f);
@@ -2807,7 +3111,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // copy values of the row over
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
                           0 +
                           x_start_file) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
@@ -2821,9 +3125,9 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // lower left corner needs upper right value
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                          (mocInfo->jmt-1)*mocInfo->imt +
-                          mocInfo->imt-1) * sizeof(float);
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                          (mocInfo->global_jmt-1)*mocInfo->global_imt +
+                          mocInfo->global_imt-1) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, 0, z), sizeof(float), 1, f);
       }
@@ -2833,9 +3137,9 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // upper left corner needs lower right value
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
                           0 +
-                          mocInfo->imt-1) * sizeof(float);
+                          mocInfo->global_imt-1) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(0, jmt-1, z), sizeof(float), 1, f);
       }
@@ -2845,8 +3149,8 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // lower right corner needs upper left value
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
-                          (mocInfo->jmt-1)*mocInfo->imt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
+                          (mocInfo->global_jmt-1)*mocInfo->global_imt +
                           0) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
       fread(&data(imt-1, 0, z), sizeof(float), 1, f);
@@ -2857,7 +3161,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     // upper right corner needs lower left value
     for(int z=0; z<km; z++)
       {
-      int total_offset = (z * mocInfo->imt * mocInfo->jmt +
+      int total_offset = (z * mocInfo->global_imt * mocInfo->global_jmt +
                           0 +
                           0) * sizeof(float);
       fseek(f, total_offset, SEEK_SET);
