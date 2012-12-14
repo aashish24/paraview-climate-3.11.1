@@ -823,10 +823,36 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
+
+double getvalacb(Matrix1DFloat& m, int i)
+{
+  cerr << m(i) << endl;
+  return m(i);
+}
+
+double getvalacb(Matrix2DFloat& m, int i, int j)
+{
+  cerr << m(i,j) << endl;
+  return m(i,j);
+}
+
+double getvalacb(Matrix2DDouble& m, int i, int j)
+{
+  cerr << m(i,j) << endl;
+  return m(i,j);
+}
+
+double getvalacb(Matrix3DFloat& m, int i, int j, int k)
+{
+  cerr << m(i,j, k) << endl;
+  return m(i,j, k);
+}
+
 class InternalMHTWorkArrays
 {
 // The default constructor and destructor should be sufficient.
 public:
+  // currenlty Work1 and WorkY are in global indices with no ghost layers
   Matrix2DFloat Work1;
   Matrix2DFloat WorkY;
   void Clear()
@@ -834,8 +860,8 @@ public:
     this->Work1.Clear();
     this->WorkY.Clear();
   }
-  void Compute(int imt, int jmt, int km, bool use_pbc, Matrix3DFloat& uet,
-               Matrix3DFloat& vnt, Matrix2DFloat& tarea, Matrix3DFloat& dzt,
+  void Compute(int globalIimt, int globalJmt, int km, bool use_pbc, Matrix3DFloat& uet,
+               Matrix3DFloat& vnt, Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt,
                Matrix1DFloat& dz);
   bool IsComputed()
   {
@@ -844,48 +870,51 @@ public:
 };
 
 void InternalMHTWorkArrays::Compute(
-  int global_imt, int global_jmt, int global_km, bool use_pbc, Matrix3DFloat& uet,
-  Matrix3DFloat& vnt, Matrix2DFloat& tarea, Matrix3DFloat& dzt, Matrix1DFloat& dz)
+  int globalImt, int globalJmt, int km, bool use_pbc, Matrix3DFloat& uet,
+  Matrix3DFloat& vnt, Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt,
+  Matrix1DFloat& dz)
 {
-  this->Work1.Allocate(global_imt, global_jmt);
-  this->WorkY.Allocate(global_imt, global_jmt);
+  this->Work1.Allocate(globalImt, globalJmt);
+  this->WorkY.Allocate(globalImt, globalJmt);
 
-  Matrix2DFloat workX(global_imt, global_jmt);
+  Matrix2DFloat workX(globalImt, globalJmt);
 
-  for(int i=0; i<global_jmt*global_imt; i++)
+  for(int i=0; i<globalJmt*globalImt; i++)
     {
     workX(i) = 0.0;
     this->WorkY(i) = 0.0;
     }
 
+  getvalacb(uet, 1, 1, 1);
+  getvalacb(tarea1GL, 1, 1);
   // vertical integration of workX and this->WorkY
-  for(int k=0; k < global_km; k++)
+  for(int k=0; k < km; k++)
     {
-    for (int j=0; j<global_jmt; j++)
+    for (int j=0; j<globalJmt; j++)
       {
-      for (int i=0; i<global_imt; i++)
+      for (int i=0; i<globalImt; i++)
         {
         if(use_pbc)
           {
-          workX(i,j) += uet(i,j,k)*tarea(i,j)*dzt(i,j,k)*4.186e-15;
-          this->WorkY(i,j) += vnt(i,j,k)*tarea(i,j)*dzt(i,j,k)*4.186e-15;
+          workX(i,j) += uet(i,j,k)*tarea1GL(i+1,j+1)*dzt(i,j,k)*4.186e-15;
+          this->WorkY(i,j) += vnt(i,j,k)*tarea1GL(i+1,j+1)*dzt(i,j,k)*4.186e-15;
           }
         else
           {
-          workX(i,j) += uet(i,j,k)*tarea(i,j)*dz(k)*4.186e-15;
-          this->WorkY(i,j) += vnt(i,j,k)*tarea(i,j)*dz(k)*4.186e-15;
+          workX(i,j) += uet(i,j,k)*tarea1GL(i+1,j+1)*dz(k)*4.186e-15;
+          this->WorkY(i,j) += vnt(i,j,k)*tarea1GL(i+1,j+1)*dz(k)*4.186e-15;
           }
         }
       }
     }
 
   // find divergence of vertically-integrated heat transport
-  for(int i=0; i<global_imt; i++)
+  for(int i=0; i<globalImt; i++)
     {
-    for(int j=0; j<global_jmt; j++)
+    for(int j=0; j<globalJmt; j++)
       {
-      int i2 = vtkMOCReader::cshift(i, -1, global_imt);
-      int j2 = vtkMOCReader::cshift(j, -1, global_jmt);
+      int i2 = vtkMOCReader::cshift(i, -1, globalImt);
+      int j2 = vtkMOCReader::cshift(j, -1, globalJmt);
       this->Work1(i,j) = workX(i,j) - workX(i2,j) + this->WorkY(i,j) - this->WorkY(i,j2);
       }
     }
@@ -900,7 +929,7 @@ vtkMOCReader::vtkMOCReader()
 {
   this->FileName = 0;
   this->SetNumberOfInputPorts(0);
-  this->SetNumberOfOutputPorts(1);
+  this->SetNumberOfOutputPorts(2);
   this->MHTWorkArrays = new InternalMHTWorkArrays;
   this->GlobalIMT0 = VTK_INT_MIN;
   this->GlobalJMT0 = VTK_INT_MIN;
@@ -933,8 +962,9 @@ int vtkMOCReader::RequestData(vtkInformation *vtkNotUsed(request),
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
   outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_EXTENT(), ext);
 
-  vtkRectilinearGrid* grid = vtkRectilinearGrid::GetData(outputVector);
-  if(this->CalculateMOC(grid, ext) == 0)
+  vtkRectilinearGrid* mocGrid = vtkRectilinearGrid::GetData(outputVector);
+  vtkRectilinearGrid* mhtGrid = vtkRectilinearGrid::GetData(outputVector, 1);
+  if(this->CalculateMOC(mocGrid, mhtGrid, ext) == 0)
     {
     vtkErrorMacro("CalculateMOC failed.");
     return 0;
@@ -1145,6 +1175,26 @@ int vtkMOCReader::SingleProcessParseMetaFile(
         mocInfo->do_msf = true;
         }
       }
+    if(name.compare("do_mht") == 0)
+      {
+      std::string equal, dostr;
+      line2 >> equal;
+      line2 >> dostr;
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      dostr = dostr.substr(1, dostr.length()-2);
+      if(dostr[0] == 'f' || dostr[0] == 'F')
+        {
+        mocInfo->do_mht = false;
+        }
+      if(dostr[0] == 't' || dostr[0] == 'T')
+        {
+        mocInfo->do_mht = true;
+        }
+      }
     if(name.compare("kmt_global_file") == 0)
       {
       std::string equal;
@@ -1223,6 +1273,30 @@ int vtkMOCReader::SingleProcessParseMetaFile(
       line2 >> equal;
       line2 >> mocInfo->v_file;
       mocInfo->v_file = mocInfo->v_file.substr(1, mocInfo->v_file.length()-2);
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      }
+    if(name.compare("uet_file") == 0)
+      {
+      std::string equal;
+      line2 >> equal;
+      line2 >> mocInfo->uet_file;
+      mocInfo->uet_file = mocInfo->uet_file.substr(1, mocInfo->uet_file.length()-2);
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      }
+    if(name.compare("vnt_file") == 0)
+      {
+      std::string equal;
+      line2 >> equal;
+      line2 >> mocInfo->vnt_file;
+      mocInfo->vnt_file = mocInfo->vnt_file.substr(1, mocInfo->vnt_file.length()-2);
       retval = checkParse(line, line2.rdstate());
       if(retval == 0)
         {
@@ -1367,7 +1441,7 @@ int vtkMOCReader::checkParse(std::string& line, std::ios_base::iostate state)
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
+int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid, int* ext)
 {
   // calculates the MOC.
   // results will be stored as fields in grid.
@@ -1387,9 +1461,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     }
 
   // figure out local extents of input data fields
-  int real_ext3D[6];   // local data extents without ghost cells
-  int ext3D[6];        // local data extents with 1 layers of ghost cells
-  int ext3D2[6];       // local data extents with 2 layers of ghost cells
+  int ext3D[6];   // local data extents without ghost cells
+  int ext3D1GL[6];        // local data extents with 1 layers of ghost cells
+  int ext3D2GL[6];       // local data extents with 2 layers of ghost cells
   int numberOfProcesses =
     vtkMultiProcessController::GetGlobalController()->GetNumberOfProcesses();
   vtkNew<vtkExtentTranslator> translator;
@@ -1407,92 +1481,93 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   translator->SetSplitPath(numberOfSplits, &splitPath[0]);
   translator->SetPiece(rank);
   translator->PieceToExtentByPoints();
-  translator->GetExtent(real_ext3D);
   translator->GetExtent(ext3D);
-  translator->GetExtent(ext3D2);
-  // store the minimum 
-  this->GlobalIMT0 = real_ext3D[0];
-  this->GlobalJMT0 = real_ext3D[2];
+  translator->GetExtent(ext3D1GL);
+  translator->GetExtent(ext3D2GL);
+  // store the minimum
+  this->GlobalIMT0 = ext3D[0];
+  this->GlobalJMT0 = ext3D[2];
 
-  // printf("proc[%i]: data extents [%i %i %i %i %i %i]\n", rank, ext3D[0],
-  //        ext3D[1], ext3D[2], ext3D[3], ext3D[4], ext3D[5]);
+  // printf("proc[%i]: data extents [%i %i %i %i %i %i]\n", rank, ext3D1GL[0],
+  //        ext3D1GL[1], ext3D1GL[2], ext3D1GL[3], ext3D1GL[4], ext3D1GL[5]);
 
   // the size of the data block i have
-  int imt = ext3D[1] - ext3D[0] + 1;
-  int jmt = ext3D[3] - ext3D[2] + 1;
+  int imt1GL = ext3D1GL[1] - ext3D1GL[0] + 1;
+  int jmt1GL = ext3D1GL[3] - ext3D1GL[2] + 1;
   // we only partition in logical x and y so km should be equal to mocInfo.global_km
   int km = ext3D[5] - ext3D[4] + 1;
 
   // add ghost cells to x and y dimension. if on the border, need to wrap
   // around. use value of -1 to signify the wrap around
-  imt += 2;
-  jmt += 2;
-  ext3D[0]--;
-  if(ext3D[1] == mocInfo.global_imt-1)
+  imt1GL += 2;
+  jmt1GL += 2;
+  ext3D1GL[0]--;
+  if(ext3D1GL[1] == mocInfo.global_imt-1)
     {
-    ext3D[1] = -1;
+    ext3D1GL[1] = -1;
     }
   else
     {
-    ext3D[1]++;
+    ext3D1GL[1]++;
     }
-  ext3D[2]--;
-  if(ext3D[3] == mocInfo.global_jmt-1)
+  ext3D1GL[2]--;
+  if(ext3D1GL[3] == mocInfo.global_jmt-1)
     {
-    ext3D[3] = -1;
+    ext3D1GL[3] = -1;
     }
   else
     {
-    ext3D[3]++;
+    ext3D1GL[3]++;
     }
   // second layer of ghost cells
-  ext3D2[0] = ext3D[0] - 1;
-  if(ext3D[1] == mocInfo.global_imt-1)
+  ext3D2GL[0] = ext3D1GL[0] - 1;
+  if(ext3D1GL[1] == mocInfo.global_imt-1)
     {
-    ext3D2[1] = -1;
+    ext3D2GL[1] = -1;
     }
-  else if(ext3D[1] == -1)
+  else if(ext3D1GL[1] == -1)
     {
-    ext3D2[1] = -2;
-    }
-  else
-    {
-    ext3D2[1] = ext3D[1] + 1;
-    }
-  ext3D2[2] = ext3D[2] - 1;
-  if(ext3D[3] == mocInfo.global_jmt-1)
-    {
-    ext3D2[3] = -1;
-    }
-  else if(ext3D[3] == -1)
-    {
-    ext3D2[3] = -2;
+    ext3D2GL[1] = -2;
     }
   else
     {
-    ext3D2[3] = ext3D[3] + 1;
+    ext3D2GL[1] = ext3D1GL[1] + 1;
+    }
+  ext3D2GL[2] = ext3D1GL[2] - 1;
+  if(ext3D1GL[3] == mocInfo.global_jmt-1)
+    {
+    ext3D2GL[3] = -1;
+    }
+  else if(ext3D1GL[3] == -1)
+    {
+    ext3D2GL[3] = -2;
+    }
+  else
+    {
+    ext3D2GL[3] = ext3D1GL[3] + 1;
     }
 
   // size for two layers of ghost cells
-  int imt2 = imt + 2;
-  int jmt2 = jmt + 2;
+  int imt2GL = imt1GL + 2;
+  int jmt2GL = jmt1GL + 2;
 
   // allocate data that will be read from disk
-  Matrix2DDouble uLat(imt, jmt);
-  Matrix2DDouble uLong(imt, jmt);
-  Matrix2DDouble htn(imt2, jmt2);
-  Matrix2DDouble hte(imt2, jmt2);
+  // x and y directions are allocated with a layer of ghost cells
+  Matrix2DDouble uLat1GL(imt1GL, jmt1GL);
+  Matrix2DDouble uLong1GL(imt1GL, jmt1GL);
+  Matrix2DDouble htn2GL(imt2GL, jmt2GL);
+  Matrix2DDouble hte2GL(imt2GL, jmt2GL);
   Matrix1DFloat dz(km);
-  Matrix2DInt global_kmt(imt, jmt);
-  Matrix2DInt atl_kmt(imt, jmt);
-  Matrix2DInt indopac_kmt(imt, jmt);
-  Matrix3DFloat u(imt, jmt, km);
-  Matrix3DFloat v(imt, jmt, km);
+  Matrix2DInt global_kmt1GL(imt1GL, jmt1GL);
+  Matrix2DInt atl_kmt1GL(imt1GL, jmt1GL);
+  Matrix2DInt indopac_kmt1GL(imt1GL, jmt1GL);
+  Matrix3DFloat u1GL(imt1GL, jmt1GL, km);
+  Matrix3DFloat v1GL(imt1GL, jmt1GL, km);
 
   // load data from disk
-  retval = this->LoadData(&mocInfo, ext3D, ext3D2, imt, jmt, km, uLat, uLong, htn,
-                          hte, dz, global_kmt, atl_kmt, indopac_kmt, u, v,
-                          imt2, jmt2);
+  retval = this->LoadData(&mocInfo, ext3D1GL, ext3D2GL, imt1GL, jmt1GL, km, uLat1GL, uLong1GL, htn2GL,
+                          hte2GL, dz, global_kmt1GL, atl_kmt1GL, indopac_kmt1GL, u1GL, v1GL,
+                          imt2GL, jmt2GL);
 
   if(retval == 0)
     {
@@ -1501,16 +1576,16 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     return 0;
     }
 
-  Matrix2DFloat dxu(imt, jmt);
-  Matrix2DFloat dyu(imt, jmt);
-  Matrix2DFloat tarea(imt, jmt);
+  Matrix2DFloat dxu1GL(imt1GL, jmt1GL);
+  Matrix2DFloat dyu1GL(imt1GL, jmt1GL);
+  Matrix2DFloat tarea1GL(imt1GL, jmt1GL);
 
   // calculate other horizontal grid fields
-  retval = this->grid_stuff(htn, hte, dxu, dyu, tarea, imt, jmt, imt2,jmt2);
+  retval = this->grid_stuff(htn2GL, hte2GL, dxu1GL, dyu1GL, tarea1GL, imt1GL, jmt1GL, imt2GL,jmt2GL);
 
   // no longer needed
-  htn.Clear();
-  hte.Clear();
+  htn2GL.Clear();
+  hte2GL.Clear();
 
   if(retval == 0)
     {
@@ -1520,23 +1595,23 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     }
 
   // convert uLat and uLong to degrees
-  for(int i=0; i<imt*jmt; i++)
+  for(int i=0; i<imt1GL*jmt1GL; i++)
     {
-    uLat(i) = uLat(i) * 180.0 / M_PI;
-    uLong(i) = uLong(i) * 180.0 / M_PI;
+    uLat1GL(i) = uLat1GL(i) * 180.0 / M_PI;
+    uLong1GL(i) = uLong1GL(i) * 180.0 / M_PI;
     }
 
-  Matrix2DFloat tLat(imt, jmt);
-  this->sw_4pt(tLat, 0.25, uLat, imt, jmt);
+  Matrix2DFloat tLat1GL(imt1GL, jmt1GL);
+  this->sw_4pt(tLat1GL, 0.25, uLat1GL, imt1GL, jmt1GL);
 
   // not needed anymore
-  uLat.Clear();
-  uLong.Clear();
+  uLat1GL.Clear();
+  uLong1GL.Clear();
 
   // calculate w from u and v
-  Matrix3DFloat w(imt, jmt, km);
-  this->wcalc(dz, dxu, dyu, tarea, global_kmt, u, v, w, imt, jmt, km);
-  u.Clear();  // not needed anymore
+  Matrix3DFloat w1GL(imt1GL, jmt1GL, km);
+  this->wcalc(dz, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL, u1GL, v1GL, w1GL, imt1GL, jmt1GL, km);
+  u1GL.Clear();  // not needed anymore
 
   // set up latitude grid to be used and allocate arrays
   int ny_mht, z;
@@ -1556,38 +1631,40 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   // psi[][][1] -- atlantic moc
   // psi[][][2] -- indo-pacific moc
   Matrix3DFloat psi(ny_mht, km, 3);
+  // mht holds the final mht arrays
+  Matrix2DFloat mht(ny_mht, 3);
 
 
 
 
 
 
-  int local_jj = -1;
-  bool has_global_jj = false;
+  int localJIndexMin1GL = -1; // was local_jj
+  bool hasGlobalJIndexMin = false;
   float southern_lat = -1000;
-  this->FindSouthern(imt, jmt, ext3D, real_ext3D, global_kmt, tLat,
-                     &local_jj, &has_global_jj, &southern_lat);
+  this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, global_kmt1GL, tLat1GL,
+                     &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
 
   // clear out temporary MHT work arrays since we don't know if they're
   // valid.
   this->MHTWorkArrays->Clear();
   if(mocInfo.do_mht && (mocInfo.do_global || mocInfo.do_atl || mocInfo.do_indopac) )
     {
-    Matrix3DFloat uet(imt, jmt, km);
-    Matrix3DFloat vnt(imt, jmt, km);
+    Matrix3DFloat uet(ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1, km);
+    Matrix3DFloat vnt(ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1, km);
     FILE* f = fopen(mocInfo.uet_file.c_str(), "rb");
     if(f == NULL)
       {
       vtkErrorMacro("Error in opening uet_file: " << mocInfo.uet_file);
       return 0;
       }
-    retval = seekFile(f, mocInfo.uet_first_record, imt, jmt);
+    retval = seekFile(f, mocInfo.uet_first_record, ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1);
     if(retval != 0)
       {
       vtkErrorMacro("Error during file seek for uet_file: " << mocInfo.uet_file);
       return 0;
       }
-    fread(uet.GetData(), sizeof(float), imt*jmt*km, f);
+    fread(uet.GetData(), sizeof(float), (ext3D[1]-ext3D[0]+1)*(ext3D[3]-ext3D[2]+1)*km, f);
     fclose(f);
 
     // read in vnt
@@ -1597,13 +1674,13 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       vtkErrorMacro("Error in opening vnt_file: " << mocInfo.vnt_file);
       return 0;
       }
-    retval = seekFile(f, mocInfo.vnt_first_record, imt, jmt);
+    retval = seekFile(f, mocInfo.vnt_first_record, ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1);
     if(retval != 0)
       {
       vtkErrorMacro("Error during file seek for vnt_file: " << mocInfo.vnt_file);
       return 0;
       }
-    fread(vnt.GetData(), sizeof(float), imt*jmt*km, f);
+    fread(vnt.GetData(), sizeof(float), (ext3D[1]-ext3D[0]+1)*(ext3D[3]-ext3D[2]+1)*km, f);
     fclose(f);
 
     if(mocInfo.byteswap)
@@ -1612,16 +1689,17 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       vnt.ByteSwap();
       }
 
-    Matrix3DFloat dzt(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt
+    Matrix3DFloat dzt(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt which is used with partial bottom cells only
     this->MHTWorkArrays->Compute(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km,
-                                 mocInfo.use_pbc, uet, vnt, tarea, dzt, dz);
+                                 mocInfo.use_pbc, uet, vnt, tarea1GL, dzt, dz);
     }
 
-// made up stuff for meridional_heat()
-  Matrix1DFloat mht_temp;
-  Matrix3DFloat dzu(imt, jmt, km);
-  int jj = -1;
+  // mht_tmp is the output array from meridional_heat() method
+  Matrix1DFloat mht_temp(ny_mht);
 
+
+  // dzu is for partial bottom cells
+  Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);
 
 
 
@@ -1632,8 +1710,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     if(mocInfo.do_msf)
       {
-      this->moc(&mocInfo, v, w, global_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
-                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+      this->moc(&mocInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+                ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
       for(int k=0; k<km; k++)
@@ -1646,7 +1724,19 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, global_kmt, tLat, lat_mht, ny_mht, jj, southern_lat, mht_temp);
+      if(mocInfo.do_msf == false)
+        {
+        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, global_kmt1GL, tLat1GL,
+                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
+        }
+      // acbauer -- need to still figure out proper jIndexMin1GL value
+      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
+
+      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      for(int y=0; y<ny_mht; y++)
+        {
+        mht(y,0) = mht_temp(y);
+        }
       }
     }
 
@@ -1655,8 +1745,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     if(mocInfo.do_msf)
       {
-      this->moc(&mocInfo, v, w, atl_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
-                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+      this->moc(&mocInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+                ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
       for(int k=0; k<km; k++)
@@ -1669,6 +1759,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
+      vtkWarningMacro("still need to do atl mht");
       }
     }
 
@@ -1677,8 +1768,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     if(mocInfo.do_msf)
       {
-      this->moc(&mocInfo, v, w, indopac_kmt, tLat, dxu, tarea, dz, dzu, lat_mht,
-                ny_mht, local_jj, has_global_jj, southern_lat, imt, jmt, psi_temp_old);
+      this->moc(&mocInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+                ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
       for(int k=0; k<km; k++)
@@ -1691,6 +1782,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
+      vtkWarningMacro("still need to do indopac mht");
       }
     }
 
@@ -1707,6 +1799,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     }
 
 // these arrays determine the coordinate positions of the grid
+  // first do the moc output grid which is a 2D grid
   vtkNew<vtkFloatArray> x_coords;
   x_coords->SetNumberOfTuples(ext[1]-ext[0]+1);
   for(int i=ext[0]; i<=ext[1]; i++)
@@ -1724,10 +1817,10 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
   vtkNew<vtkFloatArray> z_coords;
   z_coords->InsertNextValue(0.0);
 
-  grid->SetExtent(ext);
-  grid->SetXCoordinates(x_coords.GetPointer());
-  grid->SetYCoordinates(y_coords.GetPointer());
-  grid->SetZCoordinates(z_coords.GetPointer());
+  mocGrid->SetExtent(ext);
+  mocGrid->SetXCoordinates(x_coords.GetPointer());
+  mocGrid->SetYCoordinates(y_coords.GetPointer());
+  mocGrid->SetZCoordinates(z_coords.GetPointer());
 
 // TODO: change the array names
 // copy output. remember to only copy the part we want.
@@ -1735,7 +1828,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_global");
-    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    data->SetNumberOfTuples(mocGrid->GetNumberOfPoints());
     vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
@@ -1743,16 +1836,17 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
         {
         data->SetValue(counter, psi(i, j, 0));
         counter++;
+        //cerr << "moc["<<i<<","<<j<<"] = " << psi(i, j, 0) << endl;
         }
       }
-    grid->GetPointData()->AddArray(data.GetPointer());
-    grid->GetPointData()->SetScalars(data.GetPointer());
+    mocGrid->GetPointData()->AddArray(data.GetPointer());
+    mocGrid->GetPointData()->SetScalars(data.GetPointer());
     }
   if(mocInfo.do_atl)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_atl");
-    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    data->SetNumberOfTuples(mocGrid->GetNumberOfPoints());
     vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
@@ -1762,17 +1856,17 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
         counter++;
         }
       }
-    grid->GetPointData()->AddArray(data.GetPointer());
+    mocGrid->GetPointData()->AddArray(data.GetPointer());
     if(!mocInfo.do_global)
       {
-      grid->GetPointData()->SetScalars(data.GetPointer());
+      mocGrid->GetPointData()->SetScalars(data.GetPointer());
       }
     }
   if(mocInfo.do_indopac)
     {
     vtkNew<vtkFloatArray> data;
     data->SetName("reader_moc_indopac");
-    data->SetNumberOfTuples(grid->GetNumberOfPoints());
+    data->SetNumberOfTuples(mocGrid->GetNumberOfPoints());
     vtkIdType counter = 0;
     for(int j=ext[2]; j<=ext[3]; j++)
       {
@@ -1782,10 +1876,62 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* grid, int* ext)
         counter++;
         }
       }
-    grid->GetPointData()->AddArray(data.GetPointer());
+    mocGrid->GetPointData()->AddArray(data.GetPointer());
     if(!mocInfo.do_global && !mocInfo.do_atl)
       {
-      grid->GetPointData()->SetScalars(data.GetPointer());
+      mocGrid->GetPointData()->SetScalars(data.GetPointer());
+      }
+    }
+
+  // next do the mht grid which is a 1D grid
+  mhtGrid->SetExtent(ext[0], ext[1], 0, 0, 0, 0);
+  mhtGrid->SetXCoordinates(x_coords.GetPointer());
+  mhtGrid->SetYCoordinates(z_coords.GetPointer()); // a single point
+  mhtGrid->SetZCoordinates(z_coords.GetPointer()); // a single point
+  if(mocInfo.do_mht)
+    {
+    if(mocInfo.do_global)
+      {
+      vtkNew<vtkFloatArray> data;
+      data->SetName("reader_mht_global");
+      data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
+      for(int i=ext[0]; i<=ext[1]; i++)
+        {
+        data->SetValue(i-ext[0], mht(i, 0));
+        cerr << "mht["<<i<<"] = " << mht(i, 0) << " at " << x_coords->GetValue(i) << endl;
+        }
+      mhtGrid->GetPointData()->AddArray(data.GetPointer());
+      mhtGrid->GetPointData()->SetScalars(data.GetPointer());
+      }
+    if(mocInfo.do_atl)
+      {
+      vtkNew<vtkFloatArray> data;
+      data->SetName("reader_mht_atl");
+      data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
+      for(int i=ext[0]; i<=ext[1]; i++)
+        {
+        data->SetValue(i-ext[0], mht(i, 1));
+        }
+      mhtGrid->GetPointData()->AddArray(data.GetPointer());
+      if(!mocInfo.do_global)
+        {
+        mhtGrid->GetPointData()->SetScalars(data.GetPointer());
+        }
+      }
+    if(mocInfo.do_indopac)
+      {
+      vtkNew<vtkFloatArray> data;
+      data->SetName("reader_mht_indopac");
+      data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
+      for(int i=ext[0]; i<=ext[1]; i++)
+        {
+        data->SetValue(i-ext[0], mht(i, 2));
+        }
+      mhtGrid->GetPointData()->AddArray(data.GetPointer());
+      if(!mocInfo.do_global && !mocInfo.do_atl)
+        {
+        mhtGrid->GetPointData()->SetScalars(data.GetPointer());
+        }
       }
     }
 
@@ -1864,117 +2010,124 @@ void vtkMOCReader::sw_4pt(Matrix2DFloat& xout, float factor, Matrix2DDouble& x,
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu,
-                         Matrix2DFloat& dyu, Matrix2DFloat& tarea,
-                         Matrix2DInt& kmt, Matrix3DFloat& u,
-                         Matrix3DFloat& v, Matrix3DFloat& w,
-                         int imt, int jmt, int km)
+void vtkMOCReader::wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu1GL,
+                         Matrix2DFloat& dyu1GL, Matrix2DFloat& tarea1GL,
+                         Matrix2DInt& kmtb1GL, Matrix3DFloat& u1GL,
+                         Matrix3DFloat& v1GL, Matrix3DFloat& w1GL,
+                         int imt1GL, int jmt1GL, int km)
 {
   // calculate w ,the vertical velocities, since only u and v are read
   // from file
 
   int i, j;
 
-  Matrix2DFloat wtk(imt,jmt);
-  Matrix2DFloat wtkb(imt,jmt);
-  Matrix2DFloat work(imt,jmt);
-  Matrix2DFloat fue(imt,jmt);
-  Matrix2DFloat fuw(imt,jmt);
-  Matrix2DFloat fvn(imt,jmt);
-  Matrix2DFloat fvs(imt,jmt);
+  Matrix2DFloat wtk1GL(imt1GL,jmt1GL);
+  Matrix2DFloat wtkb1GL(imt1GL,jmt1GL);
+  Matrix2DFloat work1GL(imt1GL,jmt1GL);
+  Matrix2DFloat fue1GL(imt1GL,jmt1GL);
+  Matrix2DFloat fuw1GL(imt1GL,jmt1GL);
+  Matrix2DFloat fvn1GL(imt1GL,jmt1GL);
+  Matrix2DFloat fvs1GL(imt1GL,jmt1GL);
 
-  for(i=0; i<imt*jmt; i++)
+  for(i=0; i<imt1GL*jmt1GL; i++)
     {
-    wtkb(i) = 0.0; // set bottom velocity to zero
-    wtk(i) = 0.0;  // initialize
+    wtkb1GL(i) = 0.0; // set bottom velocity to zero
+    wtk1GL(i) = 0.0;  // initialize
     }
 
   for(int k=km-1; k>=0; k--)  // integrate from bottom up
     {
     // advection fluxes
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        work(i,j) = 0.5 * u(i,j,k) * dyu(i,j);
+        work1GL(i,j) = 0.5 * u1GL(i,j,k) * dyu1GL(i,j);
         }
       }
 
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        int j2 = cshift(j, -1, jmt);
-        fue(i,j) = work(i,j2);
-        fue(i,j) += work(i,j);
+        int j2 = cshift(j, -1, jmt1GL);
+        fue1GL(i,j) = work1GL(i,j2);
+        fue1GL(i,j) += work1GL(i,j);
         }
       }
 
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        int i2 = cshift(i, -1, imt);
-        fuw(i,j) = fue(i2,j);
+        int i2 = cshift(i, -1, imt1GL);
+        fuw1GL(i,j) = fue1GL(i2,j);
         }
       }
 
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        work(i,j) = 0.5 * v(i,j,k) * dxu(i,j);
+        work1GL(i,j) = 0.5 * v1GL(i,j,k) * dxu1GL(i,j);
         }
       }
 
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        int i2 = cshift(i, -1, imt);
-        fvn(i,j) = work(i2,j);
-        fvn(i,j) += work(i,j);
+        int i2 = cshift(i, -1, imt1GL);
+        fvn1GL(i,j) = work1GL(i2,j);
+        fvn1GL(i,j) += work1GL(i,j);
         }
       }
 
-    for(j=0; j<jmt; j++)
+    for(j=0; j<jmt1GL; j++)
       {
-      for(i=0; i<imt; i++)
+      for(i=0; i<imt1GL; i++)
         {
-        int j2 = cshift(j, -1, jmt);
-        fvs(i,j) = fvn(i,j2);
+        int j2 = cshift(j, -1, jmt1GL);
+        fvs1GL(i,j) = fvn1GL(i,j2);
         }
       }
 
     // calculate vertical velocity at top of kth level
     // (vertical velocity is zero at bottom of T columns)
-    for(i=0; i<imt*jmt; i++)
+    for(i=0; i<imt1GL*jmt1GL; i++)
       {
-      work(i) = (fvn(i) - fvs(i) + fue(i) - fuw(i)) / tarea(i);
+      work1GL(i) = (fvn1GL(i) - fvs1GL(i) + fue1GL(i) - fuw1GL(i)) / tarea1GL(i);
       }
 
-    for(i=0; i<imt*jmt; i++)
+    for(i=0; i<imt1GL*jmt1GL; i++)
       {
-      if(k+1 <= kmt(i))   {
-      wtk(i) = wtkb(i) - dz(k) * work(i);
-      }
-      }
-
-    for(j=0; j<jmt; j++)
-      {
-      for(i=0; i<imt; i++)
+      if(k+1 <= kmtb1GL(i))
         {
-        w(i,j,k) = wtk(i,j);
+        wtk1GL(i) = wtkb1GL(i) - dz(k) * work1GL(i);
+        }
+      }
+
+    for(j=0; j<jmt1GL; j++)
+      {
+      for(i=0; i<imt1GL; i++)
+        {
+        w1GL(i,j,k) = wtk1GL(i,j);
         }
       }
 
     // top value becomes bottom value for next pass
-    for(i=0; i<imt*jmt; i++)
+    for(i=0; i<imt1GL*jmt1GL; i++)
       {
-      wtkb(i) = wtk(i);
+      wtkb1GL(i) = wtk1GL(i);
       }
 
     }  // for(int k=km-1; k<=0; k--)
+
+  // for(i=1;i<imt1GL-1;i++)
+  //   for(j=1;j<jmt1GL-1;j++)
+  //     {
+  //     cerr << "noGL w[" << i-1 << "," << j-1 << ",0] = " << w1GL(i,j, 0) << endl;
+  //     }
 }
 
 //-----------------------------------------------------------------------------
@@ -2048,17 +2201,17 @@ void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
-                       Matrix2DInt& kmtb, Matrix2DFloat& tLat, Matrix2DFloat& dxu,
-                       Matrix2DFloat& tarea, Matrix1DFloat& dz, Matrix3DFloat& dzu,
-                       Matrix1DFloat& lats, int ny, int local_jj, bool has_global_jj,
-                       float southern_lat, int imt, int jmt, Matrix2DFloat& psi)
+void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v1GL, Matrix3DFloat& w1GL,
+                       Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL, Matrix2DFloat& dxu1GL,
+                       Matrix2DFloat& tarea1GL, Matrix1DFloat& dz, Matrix3DFloat& dzu1GL,
+                       Matrix1DFloat& lats, int ny_mht, int localJIndexMin1GL, bool hasGlobalJIndexMin,
+                       float southern_lat, int imt1GL, int jmt1GL, Matrix2DFloat& psi)
 {
   // calculates the meridional overturning circulation
-  Matrix2DFloat work(imt, jmt);
+  Matrix2DFloat work1GL(imt1GL, jmt1GL);
   Matrix1DFloat psi0(mocInfo->global_km);
   // initialize psi array
-  for(int i=0; i<mocInfo->global_km*ny; i++)
+  for(int i=0; i<mocInfo->global_km*ny_mht; i++)
     {
     psi(i) = 0.0;
     }
@@ -2080,54 +2233,54 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // the latitude jj-1, from depths k to km.
   // everyone computes a local psi0 if necessary, then a reduce is done
   // to get correct psi0. only process 0 will have correct psi0.
-  //int j = local_jj-1; not used since local_jj may still be VTK_INT_MAX
-  if(has_global_jj)
+  //int j = localJIndexMin1GL-1; not used since localJIndexMin1GL may still be VTK_INT_MAX
+  if(hasGlobalJIndexMin)
     {
-    for(int i=1; i<imt-1; i++)
+    for(int i=1; i<imt1GL-1; i++)
       {
       if(mocInfo->use_pbc)
         {
-        work(i,local_jj-1) = -dzu(i,local_jj,mocInfo->global_km-1) * v(i,local_jj-1,mocInfo->global_km-1) * dxu(i,local_jj-1);
+        work1GL(i,localJIndexMin1GL-1) = -dzu1GL(i,localJIndexMin1GL,mocInfo->global_km-1) * v1GL(i,localJIndexMin1GL-1,mocInfo->global_km-1) * dxu1GL(i,localJIndexMin1GL-1);
         }
       else
         {
-        work(i,local_jj-1) = -dz(mocInfo->global_km-1) * v(i,local_jj-1,mocInfo->global_km-1) * dxu(i,local_jj-1);
+        work1GL(i,localJIndexMin1GL-1) = -dz(mocInfo->global_km-1) * v1GL(i,localJIndexMin1GL-1,mocInfo->global_km-1) * dxu1GL(i,localJIndexMin1GL-1);
         }
       }
 
     psi0(mocInfo->global_km-1) = 0.0;
-    for(int i=1; i<imt-1; i++)
+    for(int i=1; i<imt1GL-1; i++)
       {
-      int j2 = cshift(local_jj-1, 1, jmt);
-      if(kmtb(i,local_jj-1) == 0 && kmtb(i, j2) > 0)
+      int j2 = cshift(localJIndexMin1GL-1, 1, jmt1GL);
+      if(kmtb1GL(i,localJIndexMin1GL-1) == 0 && kmtb1GL(i, j2) > 0)
         {
-        psi0(mocInfo->global_km-1) += work(i,local_jj-1);
+        psi0(mocInfo->global_km-1) += work1GL(i,localJIndexMin1GL-1);
         }
       }
     }
 
   for(int k=mocInfo->global_km-1; k>=1; k--)
     {
-    if(has_global_jj)
+    if(hasGlobalJIndexMin)
       {
-      for(int i=1; i<imt-1; i++)
+      for(int i=1; i<imt1GL-1; i++)
         {
         if(mocInfo->use_pbc)
           {
-          work(i,local_jj-1) = -dzu(i,local_jj,k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
+          work1GL(i,localJIndexMin1GL-1) = -dzu1GL(i,localJIndexMin1GL,k-1) * v1GL(i,localJIndexMin1GL-1,k-1) * dxu1GL(i,localJIndexMin1GL-1);
           }
         else
           {
-          work(i,local_jj-1) = -dz(k-1) * v(i,local_jj-1,k-1) * dxu(i,local_jj-1);
+          work1GL(i,localJIndexMin1GL-1) = -dz(k-1) * v1GL(i,localJIndexMin1GL-1,k-1) * dxu1GL(i,localJIndexMin1GL-1);
           }
         }
 
-      for(int i=1; i<imt-1; i++)
+      for(int i=1; i<imt1GL-1; i++)
         {
-        int j2 = cshift(local_jj-1, 1, jmt);
-        if(kmtb(i,local_jj-1) == 0 && kmtb(i, j2) > 0)
+        int j2 = cshift(localJIndexMin1GL-1, 1, jmt1GL);
+        if(kmtb1GL(i,localJIndexMin1GL-1) == 0 && kmtb1GL(i, j2) > 0)
           {
-          psi0(k-1) += work(i,local_jj-1);
+          psi0(k-1) += work1GL(i,localJIndexMin1GL-1);
           }
         }
       }
@@ -2145,7 +2298,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
 
   // psi(k,j) holds the moc value of depth k and lat j
   // compute my local moc
-  std::vector<moc_point_t> points(imt*jmt);
+  std::vector<moc_point_t> points(imt1GL*jmt1GL);
   for(int k=0; k<mocInfo->global_km; k++)
     {
     // first scan through all points of the layer and find all valid points
@@ -2153,14 +2306,14 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     // work value.
     int npoints = 0;     // number of points at this layer
     int k2 = k+1;  // the actual depth value that should be used
-    for(int j=1; j<jmt-1; j++)
+    for(int j=1; j<jmt1GL-1; j++)
       {
-      for(int i=1; i<imt-1; i++)
+      for(int i=1; i<imt1GL-1; i++)
         {
-        if(k2 <= kmtb(i,j))
+        if(k2 <= kmtb1GL(i,j))
           {
-          points[npoints].work = w(i,j,k) * tarea(i,j);
-          points[npoints].lat = tLat(i, j);
+          points[npoints].work = w1GL(i,j,k) * tarea1GL(i,j);
+          points[npoints].lat = tLat1GL(i, j);
           npoints++;
           }
         }
@@ -2175,7 +2328,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     // the points at the point where we left off before.
     int index = 0;  // the current place of the points array
                     // indicates the first element that has not been read yet.
-    for(int j=0; j<ny; j++)
+    for(int j=0; j<ny_mht; j++)
       {
       psi(k,j) = 0.0;
       if(j > 0)
@@ -2195,14 +2348,14 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
   // use a tree structure to send local mocs to parent node.
   // composite mocs from children and then send to parent.
   // final moc is gathered at the root, process 0.
-  Matrix2DFloat psi_temp(mocInfo->global_km, ny);
-  controller->Reduce(psi.GetData(), psi_temp.GetData(), ny*mocInfo->global_km, vtkCommunicator::SUM_OP, 0);
+  Matrix2DFloat psi_temp(mocInfo->global_km, ny_mht);
+  controller->Reduce(psi.GetData(), psi_temp.GetData(), ny_mht*mocInfo->global_km, vtkCommunicator::SUM_OP, 0);
 
   // at this point process 0 should have the accumulated moc,
   // perform some more processing to get final moc.
   if(rank == 0)
     {
-    for(int j=0; j<ny; j++)
+    for(int j=0; j<ny_mht; j++)
       {
       for(int k=0; k<mocInfo->global_km; k++)
         {
@@ -2210,7 +2363,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
         }
       }
     // add in the baseline of the southernmost latitude
-    for(int j=0; j<ny; j++)
+    for(int j=0; j<ny_mht; j++)
       {
       if(lats(j) >= southern_lat)
         {
@@ -2222,7 +2375,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       }
 
     // smooth grid-point noise over y
-    for(int j=1; j<ny-1; j++)
+    for(int j=1; j<ny_mht-1; j++)
       {
       for(int k=0; k<mocInfo->global_km; k++)
         {
@@ -2231,14 +2384,14 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
       }
 
     // normalize to Sv
-    for(int i=0; i<mocInfo->global_km*ny; i++)
+    for(int i=0; i<mocInfo->global_km*ny_mht; i++)
       {
       psi(i) *= 1e-12;
       }
 
     float special_value = -1e34;
     // replace any zeroes with the special value
-    for(int i=0; i<mocInfo->global_km*ny; i++)
+    for(int i=0; i<mocInfo->global_km*ny_mht; i++)
       {
       if(psi(i) == 0.0)
         {
@@ -2248,14 +2401,14 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v, Matrix3DFloat& w,
     }
 
   // process 0 broadcasts results to everyone
-  controller->Broadcast(psi.GetData(), ny*mocInfo->global_km, 0);
+  controller->Broadcast(psi.GetData(), ny_mht*mocInfo->global_km, 0);
 }
 
 //-----------------------------------------------------------------------------
 void vtkMOCReader::meridional_heat(
   MOCInfo* mocInfo,
-  Matrix2DInt& global_kmt, Matrix2DFloat& tLat,
-  Matrix1DFloat& lat_mht, int ny_mht, int jj, float southern_lat,
+  Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL,
+  Matrix1DFloat& lat_mht, int ny_mht, int jIndexMin1GL, float southern_lat,
   Matrix1DFloat& mht)
 {
   for(int i=0; i<ny_mht; i++)
@@ -2263,65 +2416,80 @@ void vtkMOCReader::meridional_heat(
     mht(i) = 0.0;
     }
 
-  printf("southernmost j = %i\n", jj);
+  // for(int i=0;i<3600;i++)
+  //   for(int j=0;j<2400;j++)
+  //     cerr << "workY[" << i << "," << j << "] = " << this->MHTWorkArrays->WorkY(i,j) << endl;
+
+  printf("southernmost j with 1 ghost layer = %i\n", jIndexMin1GL);
   printf("southernmost lat = %f\n", southern_lat);
 
   // zonal (over longitude range) integration to find heat transport
   // across southernmost grid circle in basin
   float global_mht0 = 0.0;
-  int j = jj-1;
-  int j2 = cshift(j, 1, mocInfo->global_jmt);
+  int j1GL = jIndexMin1GL-1; // this is jj-1 from original code
+  int j2_1GL = cshift(j1GL, 1, mocInfo->global_jmt+2);
   for(int i=0; i<mocInfo->global_imt; i++)
     {
-    if(global_kmt(i,j) == 0 && global_kmt(i,j2) > 0)
+    if(kmtb1GL(i+1,j1GL) == 0 && kmtb1GL(i+1,j2_1GL) > 0)
       {
-      global_mht0 += this->MHTWorkArrays->WorkY(i,j);
+      global_mht0 += this->MHTWorkArrays->WorkY(i,j1GL-1);
+      cerr << "WorkY[" << i << "," << j1GL-1 << "] = " << this->MHTWorkArrays->WorkY(i,j1GL-1) << endl;
       }
     }
 
-  printf("mht0: %f \n", global_mht0);
+  printf("mht0: %f for imt_local of %d jmt_local %d jIndexMin1GL %d j2_1gl %d\n", global_mht0, mocInfo->global_imt,
+         mocInfo->global_jmt, jIndexMin1GL, j2_1GL);
 
   // optimized way to find mht
   // scan through all points of the layer and find all valid points
   // which are not land. record the latitude of the point as well as its work
   // value
-  std::vector<moc_mht_point_t> points;
-  for(int i=0; i<mocInfo->global_imt*mocInfo->global_jmt; i++)
+  moc_point_t* points = new moc_point_t[mocInfo->global_imt*mocInfo->global_jmt];
+  int npoints = 0;
+  for(int i=0;i<mocInfo->global_imt;i++)
     {
-    if(global_kmt(i) > 0)
+    for(int j=0;j<mocInfo->global_jmt;j++)
       {
-      points.push_back(moc_mht_point_t(this->MHTWorkArrays->Work1(i), tLat(i)));
+      if(kmtb1GL(i+1, j+1) > 0)
+        {
+        points[npoints].work = this->MHTWorkArrays->Work1(i,j);
+        points[npoints].lat = tLat1GL(i+1,j+1);
+        npoints++;
+        }
       }
     }
 
   // sort all points by their latitude
-  qsort(&points[0], points.size(), sizeof(moc_mht_point_t), compare_latitude);
+  qsort(points, npoints, sizeof(moc_mht_point_t), compare_latitude);
 
   // step through latitude from the bottom up, accumulating all points with are
   // less than or equal to the current latitude. keep track of where in the
   // points array the accumulation has gone to. start each search through the
   // points at the point where we left off before.
-  size_t index = 0; // the current place of the points array
-  for(j=0; j<ny_mht; j++)
+  int index = 0; // the current place of the points array
+  for(int j=0; j<ny_mht; j++)
     {
     if(j > 0)
       {
       mht(j) = mht(j-1);
       }
-    while(index < points.size() && points[index].lat < lat_mht(j))
+    float lats_j = lat_mht(j);
+    while(index < npoints && points[index].lat < lats_j)
       {
       mht(j) += points[index].work;
       index++;
       }
     }
 
-  for(j=0; j<ny_mht; j++)
+  for(int j=0; j<ny_mht; j++)
     {
     if(lat_mht(j) > southern_lat)
       {
       mht(j) += global_mht0;
       }
     }
+
+  delete[] points;
 }
 
 //-----------------------------------------------------------------------------
@@ -2354,7 +2522,7 @@ void vtkMOCReader::GetMOCSize(MOCInfo* mocInfo, int* ny_mht, int* z)
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
+int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D1GL, int* ext3D2GL, int imt,
                            int jmt, int km, Matrix2DDouble& uLat,
                            Matrix2DDouble& uLong,
                            Matrix2DDouble& htn, Matrix2DDouble& hte,
@@ -2371,26 +2539,22 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
 
   // uLat
   int offset = mocInfo->global_imt * mocInfo->global_jmt * 0;
-  this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D, offset,
+  this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D1GL, offset,
                               imt, jmt, uLat);
-
-  // cerr << "imt " << imt << " jmt " << jmt << " filename " << mocInfo->grid_file << " ulatsize "
-  //      << uLat.GetSize() << " extents " << ext3D[0] << " " << ext3D[1] << " " << ext3D[2]
-  //      << " " << ext3D[3] << endl;
 
   // uLong
   offset = mocInfo->global_imt * mocInfo->global_jmt * 1;
-  this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D, offset,
+  this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D1GL, offset,
                               imt, jmt, uLong);
 
   // htn
   offset = mocInfo->global_imt * mocInfo->global_jmt * 2;
-  this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2, offset,
+  this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2GL, offset,
                                imt2, jmt2, htn);
 
   // hte
   offset = mocInfo->global_imt * mocInfo->global_jmt * 3;
-  this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2, offset,
+  this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2GL, offset,
                                imt2, jmt2, hte);
 
   // read depths file. read the first number in each row.
@@ -2437,14 +2601,14 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
     }
 
   // read kmt files
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_global_file, ext3D, imt, jmt, global_kmt);
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_atl_file, ext3D, imt, jmt, atl_kmt);
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_indopac_file, ext3D, imt, jmt,
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_global_file, ext3D1GL, imt, jmt, global_kmt);
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_atl_file, ext3D1GL, imt, jmt, atl_kmt);
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_indopac_file, ext3D1GL, imt, jmt,
                            indopac_kmt);
 
   // read velocity files
-  this->LoadDataBlock3DFloat(mocInfo, mocInfo->u_file, ext3D, imt, jmt, km, u);
-  this->LoadDataBlock3DFloat(mocInfo, mocInfo->v_file, ext3D, imt, jmt, km, v);
+  this->LoadDataBlock3DFloat(mocInfo, mocInfo->u_file, ext3D1GL, imt, jmt, km, u);
+  this->LoadDataBlock3DFloat(mocInfo, mocInfo->v_file, ext3D1GL, imt, jmt, km, v);
 
   if(mocInfo->byteswap)
     {
@@ -2468,7 +2632,7 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D, int* ext3D2, int imt,
 
 //-----------------------------------------------------------------------------
 int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
-                                        int* ext3D, int offset, int imt, int jmt,
+                                        int* ext3DArbitrary, int offset, int imt, int jmt,
                                         Matrix2DDouble& data)
 {
   // read a 2D block from a file of doubles
@@ -2483,7 +2647,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
   int x_start_file;
   int y_start_file;
 
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     x_start = 1;
     x_start_file = 0;
@@ -2491,9 +2655,9 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
   else
     {
     x_start = 0;
-    x_start_file = ext3D[0];
+    x_start_file = ext3DArbitrary[0];
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     x_end = imt - 2;
     }
@@ -2501,7 +2665,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     {
     x_end = imt - 1;
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     y_start = 1;
     y_start_file = 0;
@@ -2509,9 +2673,9 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
   else
     {
     y_start = 0;
-    y_start_file = ext3D[2];
+    y_start_file = ext3DArbitrary[2];
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     y_end = jmt - 2;
     }
@@ -2542,7 +2706,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     }
 
   // fill in wraparound ghost cells
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     // left ghost cells wrap around
     // copy values of the column over
@@ -2556,7 +2720,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
       fread(&data(0, y_start+y), sizeof(double), 1, f);
       }
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     // right ghost cells wrap around
     // copy values of the column over
@@ -2570,7 +2734,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
       fread(&data(imt-1, y_start+y), sizeof(double), 1, f);
       }
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     // bottom ghost cells wrap around
     // copy values of the row over
@@ -2580,7 +2744,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, 0), sizeof(double), row_length, f);
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     // top ghost cells wrap around
     // copy values of the row over
@@ -2592,7 +2756,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     }
 
   // take into account corner cases
-  if(ext3D[0] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower left corner needs upper right value
     int total_offset = (offset +
@@ -2601,7 +2765,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, 0), sizeof(double), 1, f);
     }
-  if(ext3D[0] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper left corner needs lower right value
     int total_offset = (offset +
@@ -2610,7 +2774,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, jmt-1), sizeof(double), 1, f);
     }
-  if(ext3D[1] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower right corner needs upper left value
     int total_offset = (offset +
@@ -2619,7 +2783,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
     fseek(f, total_offset, SEEK_SET);
     fread(&data(imt-1, 0), sizeof(double), 1, f);
     }
-  if(ext3D[1] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper right corner needs lower left value
     int total_offset = (offset +
@@ -2634,7 +2798,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
 
 //-----------------------------------------------------------------------------
 int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
-                                         int* ext3D, int offset, int imt, int jmt,
+                                         int* ext3DArbitrary, int offset, int imt, int jmt,
                                          Matrix2DDouble& data)
 {
   // read a 2D block from a file of doubles.
@@ -2650,37 +2814,37 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
   int x_start_file;
   int y_start_file;
 
-  if(ext3D[0] < 0)
+  if(ext3DArbitrary[0] < 0)
     {
-    x_start = abs(ext3D[0]);
+    x_start = abs(ext3DArbitrary[0]);
     x_start_file = 0;
     }
   else
     {
     x_start = 0;
-    x_start_file = ext3D[0];
+    x_start_file = ext3DArbitrary[0];
     }
-  if(ext3D[1] < 0)
+  if(ext3DArbitrary[1] < 0)
     {
-    x_end = imt - 1 + ext3D[1];
+    x_end = imt - 1 + ext3DArbitrary[1];
     }
   else
     {
     x_end = imt - 1;
     }
-  if(ext3D[2] < 0)
+  if(ext3DArbitrary[2] < 0)
     {
-    y_start = abs(ext3D[2]);
+    y_start = abs(ext3DArbitrary[2]);
     y_start_file = 0;
     }
   else
     {
     y_start = 0;
-    y_start_file = ext3D[2];
+    y_start_file = ext3DArbitrary[2];
     }
-  if(ext3D[3] < 0)
+  if(ext3DArbitrary[3] < 0)
     {
-    y_end = jmt - 1 + ext3D[3];
+    y_end = jmt - 1 + ext3DArbitrary[3];
     }
   else
     {
@@ -2709,11 +2873,11 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     }
 
   // fill in wraparound ghost cells
-  if(ext3D[0] < 0)
+  if(ext3DArbitrary[0] < 0)
     {
     // left ghost cells wrap around
     // copy values of the column over
-    for(int x=0; x<abs(ext3D[0]); x++)
+    for(int x=0; x<abs(ext3DArbitrary[0]); x++)
       {
       for(int y=0; y<col_length; y++)
         {
@@ -2726,11 +2890,11 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
         }
       }
     }
-  if(ext3D[1] < 0)
+  if(ext3DArbitrary[1] < 0)
     {
     // right ghost cells wrap around
     // copy values of the column over
-    for(int x=0; x<abs(ext3D[1]); x++)
+    for(int x=0; x<abs(ext3DArbitrary[1]); x++)
       {
       for(int y=0; y<col_length; y++)
         {
@@ -2743,11 +2907,11 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
         }
       }
     }
-  if(ext3D[2] < 0)
+  if(ext3DArbitrary[2] < 0)
     {
     // bottom ghost cells wrap around
     // copy values of the row over
-    for(int y=0; y<abs(ext3D[2]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[2]); y++)
       {
       int total_offset = (offset +
                           (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
@@ -2756,11 +2920,11 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
       fread(&data(x_start, y_start-1-y), sizeof(double), row_length, f);
       }
     }
-  if(ext3D[3] < 0)
+  if(ext3DArbitrary[3] < 0)
     {
     // top ghost cells wrap around
     // copy values of the row over
-    for(int y=0; y<abs(ext3D[3]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[3]); y++)
       {
       int total_offset = (offset +
                           y +
@@ -2771,52 +2935,52 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
     }
 
   // take into account corner cases
-  if(ext3D[0] < 0 && ext3D[2] < 0)
+  if(ext3DArbitrary[0] < 0 && ext3DArbitrary[2] < 0)
     {
     // lower left corner needs upper right value
-    for(int y=0; y<abs(ext3D[2]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[2]); y++)
       {
       int total_offset = (offset +
                           (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
-                          mocInfo->global_imt+ext3D[0]) * sizeof(double);
+                          mocInfo->global_imt+ext3DArbitrary[0]) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
-      fread(&data(0, y_start-1-y), sizeof(double), abs(ext3D[0]), f);
+      fread(&data(0, y_start-1-y), sizeof(double), abs(ext3DArbitrary[0]), f);
       }
     }
-  if(ext3D[0] < 0 && ext3D[3] < 0)
+  if(ext3DArbitrary[0] < 0 && ext3DArbitrary[3] < 0)
     {
     // upper left corner needs lower right value
-    for(int y=0; y<abs(ext3D[3]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[3]); y++)
       {
       int total_offset = (offset +
                           y +
-                          mocInfo->global_imt+ext3D[0]) * sizeof(double);
+                          mocInfo->global_imt+ext3DArbitrary[0]) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
-      fread(&data(0, y_end+1+y), sizeof(double), abs(ext3D[0]), f);
+      fread(&data(0, y_end+1+y), sizeof(double), abs(ext3DArbitrary[0]), f);
       }
     }
-  if(ext3D[1] < 0 && ext3D[2] < 0)
+  if(ext3DArbitrary[1] < 0 && ext3DArbitrary[2] < 0)
     {
     // lower right corner needs upper left value
-    for(int y=0; y<abs(ext3D[2]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[2]); y++)
       {
       int total_offset = (offset +
                           (mocInfo->global_jmt-1-y)*mocInfo->global_imt +
                           0) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
-      fread(&data(imt+ext3D[1], y_start-1-y), sizeof(double), abs(ext3D[1]), f);
+      fread(&data(imt+ext3DArbitrary[1], y_start-1-y), sizeof(double), abs(ext3DArbitrary[1]), f);
       }
     }
-  if(ext3D[1] < 0 && ext3D[3] < 0)
+  if(ext3DArbitrary[1] < 0 && ext3DArbitrary[3] < 0)
     {
     // upper right corner needs lower left value
-    for(int y=0; y<abs(ext3D[3]); y++)
+    for(int y=0; y<abs(ext3DArbitrary[3]); y++)
       {
       int total_offset = (offset +
                           y +
                           0) * sizeof(double);
       fseek(f, total_offset, SEEK_SET);
-      fread(&data(imt+ext3D[1], y_end+1+y),sizeof(double),abs(ext3D[1]),f);
+      fread(&data(imt+ext3DArbitrary[1], y_end+1+y),sizeof(double),abs(ext3DArbitrary[1]),f);
       }
     }
   fclose(f);
@@ -2824,7 +2988,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int* ext3D,
+int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int* ext3DArbitrary,
                                      int imt, int jmt, Matrix2DInt& data)
 {
   // load a 2D block of ints from a file
@@ -2839,7 +3003,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   int x_start_file;
   int y_start_file;
 
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     x_start = 1;
     x_start_file = 0;
@@ -2847,9 +3011,9 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   else
     {
     x_start = 0;
-    x_start_file = ext3D[0];
+    x_start_file = ext3DArbitrary[0];
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     x_end = imt - 2;
     }
@@ -2857,7 +3021,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     {
     x_end = imt - 1;
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     y_start = 1;
     y_start_file = 0;
@@ -2865,9 +3029,9 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   else
     {
     y_start = 0;
-    y_start_file = ext3D[2];
+    y_start_file = ext3DArbitrary[2];
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     y_end = jmt - 2;
     }
@@ -2897,7 +3061,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     }
 
   // fill in wraparound ghost cells
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     // left ghost cells wrap around
     // copy values of the column over
@@ -2910,7 +3074,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
       fread(&data(0, y_start+y), sizeof(int), 1, f);
       }
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     // right ghost cells wrap around
     // copy values of the column over
@@ -2923,7 +3087,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
       fread(&data(imt-1, y_start+y), sizeof(int), 1, f);
       }
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     // bottom ghost cells wrap around
     // copy values of the row over
@@ -2932,7 +3096,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     fseek(f, total_offset, SEEK_SET);
     fread(&data(x_start, 0), sizeof(int), row_length, f);
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     // top ghost cells wrap around
     // copy values of the row over
@@ -2943,7 +3107,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     }
 
   // take into account corner cases
-  if(ext3D[0] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower left corner needs upper right value
     int total_offset = ((mocInfo->global_jmt-1)*mocInfo->global_imt +
@@ -2951,7 +3115,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, 0), sizeof(int), 1, f);
     }
-  if(ext3D[0] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper left corner needs lower right value
     int total_offset = (0 +
@@ -2959,7 +3123,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     fseek(f, total_offset, SEEK_SET);
     fread(&data(0, jmt-1), sizeof(int), 1, f);
     }
-  if(ext3D[1] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower right corner needs upper left value
     int total_offset = ((mocInfo->global_jmt-1)*mocInfo->global_imt +
@@ -2967,7 +3131,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
     fseek(f, total_offset, SEEK_SET);
     fread(&data(imt-1, 0), sizeof(int), 1, f);
     }
-  if(ext3D[1] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper right corner needs lower left value
     int total_offset = (0 +
@@ -2981,7 +3145,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
 
 //-----------------------------------------------------------------------------
 int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
-                                       int* ext3D, int imt, int jmt, int km,
+                                       int* ext3DArbitrary, int imt, int jmt, int km,
                                        Matrix3DFloat& data)
 {
   // load a 3D block of floats from a file
@@ -2996,7 +3160,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
   int x_start_file;
   int y_start_file;
 
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     x_start = 1;
     x_start_file = 0;
@@ -3004,9 +3168,9 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
   else
     {
     x_start = 0;
-    x_start_file = ext3D[0];
+    x_start_file = ext3DArbitrary[0];
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     x_end = imt - 2;
     }
@@ -3014,7 +3178,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     {
     x_end = imt - 1;
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     y_start = 1;
     y_start_file = 0;
@@ -3022,9 +3186,9 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
   else
     {
     y_start = 0;
-    y_start_file = ext3D[2];
+    y_start_file = ext3DArbitrary[2];
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     y_end = jmt - 2;
     }
@@ -3058,7 +3222,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     }
 
   // fill in wraparound ghost cells
-  if(ext3D[0] == -1)
+  if(ext3DArbitrary[0] == -1)
     {
     // left ghost cells wrap around
     // copy values of the column over
@@ -3075,7 +3239,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
         }
       }
     }
-  if(ext3D[1] == -1)
+  if(ext3DArbitrary[1] == -1)
     {
     // right ghost cells wrap around
     // copy values of the column over
@@ -3092,7 +3256,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
         }
       }
     }
-  if(ext3D[2] == -1)
+  if(ext3DArbitrary[2] == -1)
     {
     // bottom ghost cells wrap around
     // copy values of the row over
@@ -3105,7 +3269,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       fread(&data(x_start, 0, z), sizeof(float), row_length, f);
       }
     }
-  if(ext3D[3] == -1)
+  if(ext3DArbitrary[3] == -1)
     {
     // top ghost cells wrap around
     // copy values of the row over
@@ -3120,7 +3284,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
     }
 
   // take into account corner cases
-  if(ext3D[0] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower left corner needs upper right value
     for(int z=0; z<km; z++)
@@ -3132,7 +3296,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       fread(&data(0, 0, z), sizeof(float), 1, f);
       }
     }
-  if(ext3D[0] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[0] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper left corner needs lower right value
     for(int z=0; z<km; z++)
@@ -3144,7 +3308,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       fread(&data(0, jmt-1, z), sizeof(float), 1, f);
       }
     }
-  if(ext3D[1] == -1 && ext3D[2] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[2] == -1)
     {
     // lower right corner needs upper left value
     for(int z=0; z<km; z++)
@@ -3156,7 +3320,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
       fread(&data(imt-1, 0, z), sizeof(float), 1, f);
       }
     }
-  if(ext3D[1] == -1 && ext3D[3] == -1)
+  if(ext3DArbitrary[1] == -1 && ext3DArbitrary[3] == -1)
     {
     // upper right corner needs lower left value
     for(int z=0; z<km; z++)
@@ -3190,25 +3354,23 @@ int vtkMOCReader::compare_latitude(const void* x, const void* y)
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D,
-                                Matrix2DInt& kmtb, Matrix2DFloat& tLat, int* local_jj,
-                                bool* has_global_jj, float* southern_lat)
+void vtkMOCReader::FindSouthern(int imt1GL, int jmt1GL, int* ext3D1GL, int* ext3D,
+                                Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL, int* localJIndexMin1GL,
+                                bool* hasGlobalJIndexMin, float* southern_lat)
 {
   // need to initialize these variables since on some processes
   // they may not get set before they're used
-  int jj = VTK_INT_MAX, true_jj = VTK_INT_MAX;
-  *local_jj = VTK_INT_MAX;
+  *localJIndexMin1GL = VTK_INT_MAX;
 
   // find j index of southernmost ocean point in basin
   bool found = false;
-  for(int j=1; j<jmt-1; j++)
+  for(int j=1; j<jmt1GL-1; j++)
     {
-    for(int i=1; i<imt-1; i++)
+    for(int i=1; i<imt1GL-1; i++)
       {
-      if(kmtb(i,j) != 0)
+      if(kmtb1GL(i,j) != 0)
         {
-        jj = j + ext3D[2];
-        *local_jj = j;
+        *localJIndexMin1GL = j;
         found = true;
         break;
         }
@@ -3223,15 +3385,16 @@ void vtkMOCReader::FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D,
     vtkMultiProcessController::GetGlobalController();
 
   // the minimum j-index is the true j-index
-  controller->AllReduce(&jj, &true_jj, 1, vtkCommunicator::MIN_OP);
-  *has_global_jj = (true_jj == jj);
+  int tempJ = *localJIndexMin1GL + ext3D1GL[2];
+  int globalJIndexMin1GL = VTK_INT_MAX;
+  controller->AllReduce(&tempJ, &globalJIndexMin1GL, 1, vtkCommunicator::MIN_OP);
+  *hasGlobalJIndexMin = (tempJ == globalJIndexMin1GL);
 
   // find southern_lat, and collect it at process 0
   float my_southern_lat;
-  if(jj == true_jj && real_ext3D[0] == 0)
+  if(*hasGlobalJIndexMin)
     {
-    // ydeg(jj-1)
-    my_southern_lat = 0.5*(tLat(0, *local_jj) + tLat(0, *local_jj-1));
+    my_southern_lat = 0.5*(tLat1GL(0, *localJIndexMin1GL+ext3D[2]) + tLat1GL(0, *localJIndexMin1GL-1+ext3D[2]));
     }
   else
     {

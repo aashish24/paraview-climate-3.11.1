@@ -66,7 +66,7 @@ protected:
   int checkParse(std::string& line, std::ios_base::iostate state);
   const std::string trim(const std::string& pstring, const std::string& pWhitespace = " \t");
 
-  int CalculateMOC(vtkRectilinearGrid* grid, int* ext);
+  int CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid, int* ext);
   int grid_stuff(Matrix2DDouble& htn,
                  Matrix2DDouble& hte, Matrix2DFloat& dxu,
                  Matrix2DFloat& dyu, Matrix2DFloat& tarea, int imt, int jmt,

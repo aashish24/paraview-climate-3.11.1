@@ -7336,6 +7336,10 @@
       Reader for MOC output files.
     </Documentation>
 
+    <OutputPort index="0"
+                name="MOC" />
+    <OutputPort index="1"
+                name="MHT" />
     <StringVectorProperty name="FileName"
                           command="SetFileName"
                           number_of_elements="1">
@@ -7343,7 +7347,7 @@
     </StringVectorProperty>
 
     <Hints>
-      <ReaderFactory extensions="moc" file_description="MOC file"/>
+      <ReaderFactory extensions="moc mht" file_description="MOC file"/>
     </Hints>
 
    </SourceProxy>
