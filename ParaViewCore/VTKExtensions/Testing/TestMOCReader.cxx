@@ -4,8 +4,6 @@
 #include "vtkNew.h"
 #include "vtkPointData.h"
 
-#include "vtkXMLRectilinearGridWriter.h"
-
 int main()
 {
   vtkNew<vtkDummyController> controller;
@@ -27,27 +25,45 @@ int main()
     return 1;
     }
 
+  // global MHT
   vtkDataArray* mhtValues = mhtGrid->GetPointData()->GetArray("reader_mht_global");
   double sum = 0;
+  double squaredSum = 0;
   for(vtkIdType i=0;i<mhtValues->GetNumberOfTuples();i++)
     {
     sum += mhtValues->GetTuple1(i);
+    squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
     }
   if(sum < 84.1 || sum > 84.2)
     {
-    vtkGenericWarningMacro("MHT sum " << sum << " but should be 84.1643.");
+    vtkGenericWarningMacro("Global MHT sum " << sum << " but should be 84.1643.");
+    return 1;
+    }
+  if(squaredSum < 279. || squaredSum > 280.)
+    {
+    vtkGenericWarningMacro("Global MHT squared sum " << squaredSum << " but should be 279.805.");
     return 1;
     }
 
-  vtkNew<vtkXMLRectilinearGridWriter> mhtwriter;
-  mhtwriter->SetFileName("mht.vtr");
-  mhtwriter->SetInputConnection(reader->GetOutputPort(1));
-  mhtwriter->Update();
-
-  vtkNew<vtkXMLRectilinearGridWriter> mocwriter;
-  mocwriter->SetFileName("moc.vtr");
-  mocwriter->SetInputConnection(reader->GetOutputPort(0));
-  mocwriter->Update();
+  // atlantic MHT
+  mhtValues = mhtGrid->GetPointData()->GetArray("reader_mht_atl");
+  sum = 0;
+  squaredSum = 0;
+  for(vtkIdType i=0;i<mhtValues->GetNumberOfTuples();i++)
+    {
+    sum += mhtValues->GetTuple1(i);
+    squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
+    }
+  if(sum < 150. || sum > 151.)
+    {
+    vtkGenericWarningMacro("Atlantic MHT sum " << sum << " but should be 150.715.");
+    return 1;
+    }
+  if(squaredSum < 121. || squaredSum > 122.)
+    {
+    vtkGenericWarningMacro("Atlantic MHT squared sum " << squaredSum << " but should be 121.712.");
+    return 1;
+    }
 
   controller->SetGlobalController(0);
 
