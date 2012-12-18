@@ -135,6 +135,13 @@ protected:
     return local_jmt+this->GlobalJMT0;
   }
 
+  // Description:
+  // Given a latitude and an array of latitude values, return the
+  // index of the smallest value of lat_mht(index) such that
+  // latitude < lat_mht(index). Returns -1 if the index couldn't
+  // be found.
+  int GetLatitudeIndex(Matrix1DFloat& lat_mht, float latitude);
+
 private:
   vtkMOCReader(const vtkMOCReader&);          // not implemented
   void operator = (const vtkMOCReader&);   // not implemented

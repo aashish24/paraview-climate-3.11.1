@@ -1670,10 +1670,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   // mht_tmp is the output array from meridional_heat() method
   Matrix1DFloat mht_temp(ny_mht);
 
-
   // dzu is for partial bottom cells
   Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);
-
 
 
 // calculate overturning streamfunctions
@@ -1732,7 +1730,19 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      vtkWarningMacro("still need to do atl mht");
+      if(mocInfo.do_msf == false)
+        {
+        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, atl_kmt1GL, tLat1GL,
+                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
+        }
+      // acbauer -- need to still figure out proper jIndexMin1GL value
+      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
+
+      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      for(int y=0; y<ny_mht; y++)
+        {
+        mht(y,1) = mht_temp(y);
+        }
       }
     }
 
@@ -1755,7 +1765,19 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      vtkWarningMacro("still need to do indopac mht");
+      if(mocInfo.do_msf == false)
+        {
+        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, indopac_kmt1GL, tLat1GL,
+                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
+        }
+      // acbauer -- need to still figure out proper jIndexMin1GL value
+      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
+
+      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      for(int y=0; y<ny_mht; y++)
+        {
+        mht(y,2) = mht_temp(y);
+        }
       }
     }
 
@@ -2397,48 +2419,34 @@ void vtkMOCReader::meridional_heat(
       }
     }
 
-  printf("mht0: %f for imt_local of %d jmt_local %d jIndexMin1GL %d j2_1gl %d\n", global_mht0, mocInfo->global_imt,
+  printf("mht0: %f for imt_local of %d jmt_local %d jIndexMin1GL %d j2_1gl %d\n",
+         global_mht0, mocInfo->global_imt,
          mocInfo->global_jmt, jIndexMin1GL, j2_1GL);
 
   // optimized way to find mht
   // scan through all points of the layer and find all valid points
   // which are not land. record the latitude of the point as well as its work
   // value
-  moc_point_t* points = new moc_point_t[mocInfo->global_imt*mocInfo->global_jmt];
-  int npoints = 0;
   for(int i=0;i<mocInfo->global_imt;i++)
     {
     for(int j=0;j<mocInfo->global_jmt;j++)
       {
       if(kmtb1GL(i+1, j+1) > 0)
         {
-        points[npoints].work = this->MHTWorkArrays->Work1(i,j);
-        points[npoints].lat = tLat1GL(i+1,j+1);
-        npoints++;
+        int mhtArrayIndex = this->GetLatitudeIndex(lat_mht, tLat1GL(i+1, j+1));
+        if(mhtArrayIndex >= 0)
+          {
+          mht(mhtArrayIndex) += this->MHTWorkArrays->Work1(i,j);
+          }
         }
       }
     }
 
-  // sort all points by their latitude
-  qsort(points, npoints, sizeof(moc_mht_point_t), compare_latitude);
+  // acbauer -- do parallel sum here!!!
 
-  // step through latitude from the bottom up, accumulating all points with are
-  // less than or equal to the current latitude. keep track of where in the
-  // points array the accumulation has gone to. start each search through the
-  // points at the point where we left off before.
-  int index = 0; // the current place of the points array
-  for(int j=0; j<ny_mht; j++)
+  for(int j=1;j<ny_mht;j++)
     {
-    if(j > 0)
-      {
-      mht(j) = mht(j-1);
-      }
-    float lats_j = lat_mht(j);
-    while(index < npoints && points[index].lat < lats_j)
-      {
-      mht(j) += points[index].work;
-      index++;
-      }
+    mht(j) += mht(j-1);
     }
 
   for(int j=0; j<ny_mht; j++)
@@ -2448,8 +2456,20 @@ void vtkMOCReader::meridional_heat(
       mht(j) += global_mht0;
       }
     }
+}
 
-  delete[] points;
+//-----------------------------------------------------------------------------
+int vtkMOCReader::GetLatitudeIndex(Matrix1DFloat& lat_mht, float latitude)
+{
+  for(unsigned j=0; j<lat_mht.GetSize();j++)
+    {
+    if(latitude < lat_mht(j))
+      {
+      return static_cast<int>(j);
+      }
+    }
+  // couldn't find one
+  return -1;
 }
 
 //-----------------------------------------------------------------------------
