@@ -4,6 +4,8 @@
 #include "vtkNew.h"
 #include "vtkPointData.h"
 
+#include "vtkXMLRectilinearGridWriter.h"
+
 int main()
 {
   vtkNew<vtkDummyController> controller;
@@ -36,6 +38,16 @@ int main()
     vtkGenericWarningMacro("MHT sum " << sum << " but should be 84.1643.");
     return 1;
     }
+
+  vtkNew<vtkXMLRectilinearGridWriter> mhtwriter;
+  mhtwriter->SetFileName("mht.vtr");
+  mhtwriter->SetInputConnection(reader->GetOutputPort(1));
+  mhtwriter->Update();
+
+  vtkNew<vtkXMLRectilinearGridWriter> mocwriter;
+  mocwriter->SetFileName("moc.vtr");
+  mocwriter->SetInputConnection(reader->GetOutputPort(0));
+  mocwriter->Update();
 
   controller->SetGlobalController(0);
 

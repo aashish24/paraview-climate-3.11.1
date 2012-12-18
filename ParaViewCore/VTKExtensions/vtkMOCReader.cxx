@@ -971,6 +971,13 @@ int vtkMOCReader::RequestInformation(vtkInformation *vtkNotUsed(request),
   int ext[6] = {0, ny_mht-1, 0, z-1, 0, 0};
   outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
 
+  if(mocInfo.do_mht)
+    {
+    outInfo = outputVector->GetInformationObject(1);
+    ext[3] = 0;
+    outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
+    }
+
   return 1;
 }
 
@@ -1607,17 +1614,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   // mht holds the final mht arrays
   Matrix2DFloat mht(ny_mht, 3);
 
-
-
-
-
-
-  int localJIndexMin1GL = -1; // was local_jj
-  bool hasGlobalJIndexMin = false;
-  float southern_lat = -1000;
-  this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, global_kmt1GL, tLat1GL,
-                     &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
-
   // clear out temporary MHT work arrays since we don't know if they're
   // valid.
   this->MHTWorkArrays->Clear();
@@ -1673,12 +1669,17 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   // dzu is for partial bottom cells
   Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);
 
-
 // calculate overturning streamfunctions
 
 // first do global
   if(mocInfo.do_global)
     {
+    int localJIndexMin1GL = -1; // was local_jj
+    bool hasGlobalJIndexMin = false;
+    float southern_lat = -1000;
+    this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, global_kmt1GL, tLat1GL,
+                       &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
+
     if(mocInfo.do_msf)
       {
       this->moc(&mocInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
@@ -1695,15 +1696,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      if(mocInfo.do_msf == false)
-        {
-        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, global_kmt1GL, tLat1GL,
-                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
-        }
-      // acbauer -- need to still figure out proper jIndexMin1GL value
-      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
-
-      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,0) = mht_temp(y);
@@ -1714,6 +1707,11 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
 // next do atlantic
   if(mocInfo.do_atl)
     {
+    int localJIndexMin1GL = -1; // was local_jj
+    bool hasGlobalJIndexMin = false;
+    float southern_lat = -1000;
+    this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, atl_kmt1GL, tLat1GL,
+                       &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(mocInfo.do_msf)
       {
       this->moc(&mocInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
@@ -1730,15 +1728,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      if(mocInfo.do_msf == false)
-        {
-        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, atl_kmt1GL, tLat1GL,
-                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
-        }
-      // acbauer -- need to still figure out proper jIndexMin1GL value
-      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
-
-      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,1) = mht_temp(y);
@@ -1749,6 +1739,11 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
 // now do indo-pacific
   if(mocInfo.do_indopac)
     {
+    int localJIndexMin1GL = -1; // was local_jj
+    bool hasGlobalJIndexMin = false;
+    float southern_lat = -1000;
+    this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, indopac_kmt1GL, tLat1GL,
+                       &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(mocInfo.do_msf)
       {
       this->moc(&mocInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
@@ -1765,15 +1760,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      if(mocInfo.do_msf == false)
-        {
-        this->FindSouthern(imt1GL, jmt1GL, ext3D1GL, ext3D, indopac_kmt1GL, tLat1GL,
-                           &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
-        }
-      // acbauer -- need to still figure out proper jIndexMin1GL value
-      int jIndexMin1GL = localJIndexMin1GL;  // j index of southernmost ocean point in basin
-
-      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, ny_mht, jIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,2) = mht_temp(y);
