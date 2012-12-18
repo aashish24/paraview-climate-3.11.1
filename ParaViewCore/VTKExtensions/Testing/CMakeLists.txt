@@ -9,6 +9,7 @@ SET(ServersFilters_SRCS
   TestExtractScatterPlot
   TestTilesHelper
   TestSortingTable
+  TestMOCReader
   )
 
 IF (VTK_DATA_ROOT)

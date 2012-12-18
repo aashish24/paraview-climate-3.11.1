@@ -7,7 +7,7 @@
 #include "vtkNew.h"
 #include "vtkPointData.h"
 #include "vtkSmartPointer.h"
-#include "vtkUnstructuredPOPReader.cxx"
+#include "vtkUnstructuredPOPReader.h"
 #include "vtkXMLUnstructuredGridWriter.h"
 
 #include "mpi.h"

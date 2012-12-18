@@ -823,31 +823,6 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
-
-double getvalacb(Matrix1DFloat& m, int i)
-{
-  cerr << m(i) << endl;
-  return m(i);
-}
-
-double getvalacb(Matrix2DFloat& m, int i, int j)
-{
-  cerr << m(i,j) << endl;
-  return m(i,j);
-}
-
-double getvalacb(Matrix2DDouble& m, int i, int j)
-{
-  cerr << m(i,j) << endl;
-  return m(i,j);
-}
-
-double getvalacb(Matrix3DFloat& m, int i, int j, int k)
-{
-  cerr << m(i,j, k) << endl;
-  return m(i,j, k);
-}
-
 class InternalMHTWorkArrays
 {
 // The default constructor and destructor should be sufficient.
@@ -885,8 +860,6 @@ void InternalMHTWorkArrays::Compute(
     this->WorkY(i) = 0.0;
     }
 
-  getvalacb(uet, 1, 1, 1);
-  getvalacb(tarea1GL, 1, 1);
   // vertical integration of workX and this->WorkY
   for(int k=0; k < km; k++)
     {
@@ -1836,7 +1809,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
         {
         data->SetValue(counter, psi(i, j, 0));
         counter++;
-        //cerr << "moc["<<i<<","<<j<<"] = " << psi(i, j, 0) << endl;
         }
       }
     mocGrid->GetPointData()->AddArray(data.GetPointer());
@@ -1898,7 +1870,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       for(int i=ext[0]; i<=ext[1]; i++)
         {
         data->SetValue(i-ext[0], mht(i, 0));
-        cerr << "mht["<<i<<"] = " << mht(i, 0) << " at " << x_coords->GetValue(i) << endl;
         }
       mhtGrid->GetPointData()->AddArray(data.GetPointer());
       mhtGrid->GetPointData()->SetScalars(data.GetPointer());
@@ -2122,12 +2093,6 @@ void vtkMOCReader::wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu1GL,
       }
 
     }  // for(int k=km-1; k<=0; k--)
-
-  // for(i=1;i<imt1GL-1;i++)
-  //   for(j=1;j<jmt1GL-1;j++)
-  //     {
-  //     cerr << "noGL w[" << i-1 << "," << j-1 << ",0] = " << w1GL(i,j, 0) << endl;
-  //     }
 }
 
 //-----------------------------------------------------------------------------
@@ -2416,10 +2381,6 @@ void vtkMOCReader::meridional_heat(
     mht(i) = 0.0;
     }
 
-  // for(int i=0;i<3600;i++)
-  //   for(int j=0;j<2400;j++)
-  //     cerr << "workY[" << i << "," << j << "] = " << this->MHTWorkArrays->WorkY(i,j) << endl;
-
   printf("southernmost j with 1 ghost layer = %i\n", jIndexMin1GL);
   printf("southernmost lat = %f\n", southern_lat);
 
@@ -2433,7 +2394,6 @@ void vtkMOCReader::meridional_heat(
     if(kmtb1GL(i+1,j1GL) == 0 && kmtb1GL(i+1,j2_1GL) > 0)
       {
       global_mht0 += this->MHTWorkArrays->WorkY(i,j1GL-1);
-      cerr << "WorkY[" << i << "," << j1GL-1 << "] = " << this->MHTWorkArrays->WorkY(i,j1GL-1) << endl;
       }
     }
 
