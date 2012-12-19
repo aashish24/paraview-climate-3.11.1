@@ -75,7 +75,7 @@ protected:
   int checkParse(std::string& line, std::ios_base::iostate state);
   const std::string trim(const std::string& pstring, const std::string& pWhitespace = " \t");
 
-  int CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid, int* ext);
+  int CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid, int* ext, int* extMHT);
   int grid_stuff(Matrix2DDouble& htn,
                  Matrix2DDouble& hte, Matrix2DFloat& dxu,
                  Matrix2DFloat& dyu, Matrix2DFloat& tarea, int imt, int jmt,
@@ -97,7 +97,7 @@ protected:
            int imt, int jmt, Matrix2DFloat& psi);
 
   void meridional_heat(MOCInfo* mocInfo, Matrix2DInt& kmtb, Matrix2DFloat& tLat,
-                       Matrix1DFloat& lats, int ny, int jj, float southern_lat,
+                       Matrix1DFloat& lats, int imt1GL, int ny, int jj, float southern_lat,
                        Matrix1DFloat& mht);
 
   void GetMOCSize(MOCInfo*, int* y, int* z);

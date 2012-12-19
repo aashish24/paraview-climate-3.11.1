@@ -977,10 +977,23 @@ int vtkMOCReader::RequestData(vtkInformation *vtkNotUsed(request),
   int ext[6] = {0, -1, 0, -1, 0, -1};
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
   outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_EXTENT(), ext);
+  cerr << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId() << " has moc extent of "
+       << ext[0] << " " << ext[1] << " "
+       << ext[2] << " " << ext[3] << " "
+       << ext[4] << " " << ext[5] << endl;
+
+  vtkInformation *outInfoMHT = outputVector->GetInformationObject(1);
+  int extMHT[6] = {0, -1, 0, -1, 0, -1};
+  outInfoMHT->Get(vtkStreamingDemandDrivenPipeline::UPDATE_EXTENT(), extMHT);
+  cerr << vtkMultiProcessController::GetGlobalController()->GetLocalProcessId() << " has mht extent of "
+       << extMHT[0] << " " << extMHT[1] << " "
+       << extMHT[2] << " " << extMHT[3] << " "
+       << extMHT[4] << " " << extMHT[5] << endl;
+
 
   vtkRectilinearGrid* mocGrid = vtkRectilinearGrid::GetData(outputVector);
   vtkRectilinearGrid* mhtGrid = vtkRectilinearGrid::GetData(outputVector, 1);
-  if(this->CalculateMOC(mocGrid, mhtGrid, ext) == 0)
+  if(this->CalculateMOC(mocGrid, mhtGrid, ext, extMHT) == 0)
     {
     vtkErrorMacro("CalculateMOC failed.");
     return 0;
@@ -1464,7 +1477,8 @@ int vtkMOCReader::checkParse(std::string& line, std::ios_base::iostate state)
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid, int* ext)
+int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* mhtGrid,
+                               int* ext, int* extMHT)
 {
   // calculates the MOC.
   // results will be stored as fields in grid.
@@ -1654,8 +1668,13 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   // psi[][][1] -- atlantic moc
   // psi[][][2] -- indo-pacific moc
   Matrix3DFloat psi(ny_mht, km, 3);
-  // mht holds the final mht arrays
+  // mht holds the final mht arrays. note that all processes get a full copy
+  // of the mht arrays since they are 1D and then we can keep the same
+  // partitioning as is used for MOC. The MHT grid output then uses
+  // the appropriate parts of the array for the point data.
   Matrix2DFloat mht(ny_mht, 3);
+  // mht_tmp is the output array from meridional_heat() method
+  Matrix1DFloat mht_temp(ny_mht);
 
   // clear out temporary MHT work arrays since we don't know if they're
   // valid.
@@ -1665,9 +1684,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
     Matrix3DFloat dzt1GL;//(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt1GL which is used with partial bottom cells only
     this->MHTWorkArrays->Compute(mocInfo, imt1GL, jmt1GL, km, ext3D1GL, tarea1GL, dzt1GL, dz);
     }
-
-  // mht_tmp is the output array from meridional_heat() method
-  Matrix1DFloat mht_temp(ny_mht);
 
   // dzu is for partial bottom cells
   Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);
@@ -1699,7 +1715,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,0) = mht_temp(y);
@@ -1731,7 +1747,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,1) = mht_temp(y);
@@ -1763,7 +1779,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,2) = mht_temp(y);
@@ -1868,8 +1884,14 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
     }
 
   // next do the mht grid which is a 1D grid
-  mhtGrid->SetExtent(ext[0], ext[1], 0, 0, 0, 0);
-  mhtGrid->SetXCoordinates(x_coords.GetPointer());
+  mhtGrid->SetExtent(extMHT);
+  vtkNew<vtkFloatArray> x_coordsMHT;
+  x_coordsMHT->SetNumberOfTuples(extMHT[1]-extMHT[0]+1);
+  for(int i=extMHT[0]; i<=extMHT[1]; i++)
+    {
+    x_coords->SetValue(i-ext[0], lat_mht(i));
+    }
+  mhtGrid->SetXCoordinates(x_coordsMHT.GetPointer());
   mhtGrid->SetYCoordinates(z_coords.GetPointer()); // a single point
   mhtGrid->SetZCoordinates(z_coords.GetPointer()); // a single point
   if(mocInfo.do_mht)
@@ -1879,9 +1901,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       vtkNew<vtkFloatArray> data;
       data->SetName("reader_mht_global");
       data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
-      for(int i=ext[0]; i<=ext[1]; i++)
+      for(int i=extMHT[0]; i<=extMHT[1]; i++)
         {
-        data->SetValue(i-ext[0], mht(i, 0));
+        data->SetValue(i-extMHT[0], mht(i, 0));
         }
       mhtGrid->GetPointData()->AddArray(data.GetPointer());
       mhtGrid->GetPointData()->SetScalars(data.GetPointer());
@@ -1891,9 +1913,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       vtkNew<vtkFloatArray> data;
       data->SetName("reader_mht_atl");
       data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
-      for(int i=ext[0]; i<=ext[1]; i++)
+      for(int i=extMHT[0]; i<=extMHT[1]; i++)
         {
-        data->SetValue(i-ext[0], mht(i, 1));
+        data->SetValue(i-extMHT[0], mht(i, 1));
         }
       mhtGrid->GetPointData()->AddArray(data.GetPointer());
       if(!mocInfo.do_global)
@@ -1906,9 +1928,9 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       vtkNew<vtkFloatArray> data;
       data->SetName("reader_mht_indopac");
       data->SetNumberOfTuples(mhtGrid->GetNumberOfPoints());
-      for(int i=ext[0]; i<=ext[1]; i++)
+      for(int i=extMHT[0]; i<=extMHT[1]; i++)
         {
-        data->SetValue(i-ext[0], mht(i, 2));
+        data->SetValue(i-extMHT[0], mht(i, 2));
         }
       mhtGrid->GetPointData()->AddArray(data.GetPointer());
       if(!mocInfo.do_global && !mocInfo.do_atl)
@@ -2383,7 +2405,7 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v1GL, Matrix3DFloat& w1G
 void vtkMOCReader::meridional_heat(
   MOCInfo* mocInfo,
   Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL,
-  Matrix1DFloat& lat_mht, int ny_mht, int jIndexMin1GL, float southern_lat,
+  Matrix1DFloat& lat_mht, int imt1GL, int ny_mht, int jIndexMin1GL, float southern_lat,
   Matrix1DFloat& mht)
 {
   for(int i=0; i<ny_mht; i++)
@@ -2399,11 +2421,12 @@ void vtkMOCReader::meridional_heat(
   float global_mht0 = 0.0;
   int j1GL = jIndexMin1GL-1; // this is jj-1 from original code
   int j2_1GL = cshift(j1GL, 1, mocInfo->global_jmt+2);
-  for(int i=0; i<mocInfo->global_imt; i++)
+  //for(int i=0; i<mocInfo->global_imt; i++)
+  for(int i=1; i<imt1GL-1; i++)
     {
-    if(kmtb1GL(i+1,j1GL) == 0 && kmtb1GL(i+1,j2_1GL) > 0)
+    if(kmtb1GL(i,j1GL) == 0 && kmtb1GL(i,j2_1GL) > 0)
       {
-      global_mht0 += this->MHTWorkArrays->WorkY1GL(i+1,j1GL);
+      global_mht0 += this->MHTWorkArrays->WorkY1GL(i,j1GL);
       }
     }
 
