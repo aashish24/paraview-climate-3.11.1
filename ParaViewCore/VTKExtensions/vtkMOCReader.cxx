@@ -823,21 +823,37 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
+// float printinfoacb(Matrix2DFloat& array, int i, int j)
+// {
+//   cerr << array(i,j) << endl;
+//   return array(i,j);
+// }
+
+// float printinfoacb(Matrix3DFloat& array, int i, int j, int k)
+// {
+//   cerr << array(i,j,k) << endl;
+//   return array(i,j,k);
+// }
+
 class InternalMHTWorkArrays
 {
 // The default constructor and destructor should be sufficient.
 public:
-  // currenlty Work1 and WorkY are in global indices with no ghost layers
+  // currenlty Work1 and WorkY1GL are in global indices with no ghost layers
   Matrix2DFloat Work1;
-  Matrix2DFloat WorkY;
+  Matrix2DFloat WorkY1GL;
   void Clear()
   {
     this->Work1.Clear();
-    this->WorkY.Clear();
+    this->WorkY1GL.Clear();
   }
-  void Compute(int globalIimt, int globalJmt, int km, bool use_pbc, Matrix3DFloat& uet,
-               Matrix3DFloat& vnt, Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt,
-               Matrix1DFloat& dz);
+  void Compute(MOCInfo& mocInfo, int imt1GL, int jmt1GL, int km, int* ext3D1GL,
+               Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt1GL, Matrix1DFloat& dz);
+
+  // Loads uet1GL and vnt1GL. returns 1 for success and 0 for failure.
+  int LoadData(MOCInfo& mocInfo, int* ext3D1GL, int imt1GL, int jmt1GL, int km,
+               Matrix3DFloat& uet1GL, Matrix3DFloat& vnt1GL);
+
   bool IsComputed()
   {
     return (this->Work1.GetData() != NULL);
@@ -845,52 +861,79 @@ public:
 };
 
 void InternalMHTWorkArrays::Compute(
-  int globalImt, int globalJmt, int km, bool use_pbc, Matrix3DFloat& uet,
-  Matrix3DFloat& vnt, Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt,
-  Matrix1DFloat& dz)
+  MOCInfo& mocInfo, int imt1GL, int jmt1GL, int km, int* ext3D1GL,
+  Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt1GL, Matrix1DFloat& dz)
 {
-  this->Work1.Allocate(globalImt, globalJmt);
-  this->WorkY.Allocate(globalImt, globalJmt);
+  Matrix3DFloat uet1GL(imt1GL, jmt1GL, km);
+  Matrix3DFloat vnt1GL(imt1GL, jmt1GL, km);
+  this->LoadData(mocInfo, ext3D1GL, imt1GL, jmt1GL, km, uet1GL, vnt1GL);
 
-  Matrix2DFloat workX(globalImt, globalJmt);
+  this->Work1.Allocate(imt1GL-1, jmt1GL-1);
+  this->WorkY1GL.Allocate(imt1GL, jmt1GL);
 
-  for(int i=0; i<globalJmt*globalImt; i++)
+  Matrix2DFloat workX1GL(imt1GL, jmt1GL);
+
+  for(int i=0; i<jmt1GL*imt1GL; i++)
     {
-    workX(i) = 0.0;
-    this->WorkY(i) = 0.0;
+    workX1GL(i) = 0.0;
+    this->WorkY1GL(i) = 0.0;
     }
 
-  // vertical integration of workX and this->WorkY
+  // vertical integration of workX1GL and this->WorkY1GL
   for(int k=0; k < km; k++)
     {
-    for (int j=0; j<globalJmt; j++)
+    for (int j=0; j<jmt1GL; j++)
       {
-      for (int i=0; i<globalImt; i++)
+      for (int i=0; i<imt1GL; i++)
         {
-        if(use_pbc)
+        if(mocInfo.use_pbc)
           {
-          workX(i,j) += uet(i,j,k)*tarea1GL(i+1,j+1)*dzt(i,j,k)*4.186e-15;
-          this->WorkY(i,j) += vnt(i,j,k)*tarea1GL(i+1,j+1)*dzt(i,j,k)*4.186e-15;
+          workX1GL(i,j) += uet1GL(i,j,k)*tarea1GL(i,j)*dzt1GL(i,j,k)*4.186e-15;
+          this->WorkY1GL(i,j) += vnt1GL(i,j,k)*tarea1GL(i,j)*dzt1GL(i,j,k)*4.186e-15;
           }
         else
           {
-          workX(i,j) += uet(i,j,k)*tarea1GL(i+1,j+1)*dz(k)*4.186e-15;
-          this->WorkY(i,j) += vnt(i,j,k)*tarea1GL(i+1,j+1)*dz(k)*4.186e-15;
+          workX1GL(i,j) += uet1GL(i,j,k)*tarea1GL(i,j)*dz(k)*4.186e-15;
+          this->WorkY1GL(i,j) += vnt1GL(i,j,k)*tarea1GL(i,j)*dz(k)*4.186e-15;
           }
         }
       }
     }
-
   // find divergence of vertically-integrated heat transport
-  for(int i=0; i<globalImt; i++)
+  for(int i=1; i<imt1GL-1; i++)
     {
-    for(int j=0; j<globalJmt; j++)
+    for(int j=1; j<jmt1GL-1; j++)
       {
-      int i2 = vtkMOCReader::cshift(i, -1, globalImt);
-      int j2 = vtkMOCReader::cshift(j, -1, globalJmt);
-      this->Work1(i,j) = workX(i,j) - workX(i2,j) + this->WorkY(i,j) - this->WorkY(i,j2);
+      int i2 = vtkMOCReader::cshift(i, -1, imt1GL);
+      int j2 = vtkMOCReader::cshift(j, -1, jmt1GL);
+      this->Work1(i-1,j-1) = workX1GL(i,j) - workX1GL(i2,j) + this->WorkY1GL(i,j) - this->WorkY1GL(i,j2);
       }
     }
+}
+
+int InternalMHTWorkArrays::LoadData(MOCInfo& mocInfo, int* ext3D1GL, int imt1GL, int jmt1GL, int km,
+                                    Matrix3DFloat& uet1GL, Matrix3DFloat& vnt1GL)
+{
+  int retVal = vtkMOCReader::LoadDataBlock3DFloat(&mocInfo, mocInfo.uet_file, ext3D1GL,
+                                                  imt1GL, jmt1GL, km, uet1GL);
+  if(retVal == 0)
+    {
+    return 0;
+    }
+  retVal =  vtkMOCReader::LoadDataBlock3DFloat(&mocInfo, mocInfo.vnt_file, ext3D1GL,
+                                               imt1GL, jmt1GL, km, vnt1GL);
+  if(retVal == 0)
+    {
+    return 0;
+    }
+
+  if(mocInfo.byteswap)
+    {
+    // byteswap all arrays
+    uet1GL.ByteSwap();
+    vnt1GL.ByteSwap();
+    }
+  return 1;
 }
 
 vtkStandardNewMacro(vtkMOCReader);
@@ -1619,48 +1662,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   this->MHTWorkArrays->Clear();
   if(mocInfo.do_mht && (mocInfo.do_global || mocInfo.do_atl || mocInfo.do_indopac) )
     {
-    Matrix3DFloat uet(ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1, km);
-    Matrix3DFloat vnt(ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1, km);
-    FILE* f = fopen(mocInfo.uet_file.c_str(), "rb");
-    if(f == NULL)
-      {
-      vtkErrorMacro("Error in opening uet_file: " << mocInfo.uet_file);
-      return 0;
-      }
-    retval = seekFile(f, mocInfo.uet_first_record, ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1);
-    if(retval != 0)
-      {
-      vtkErrorMacro("Error during file seek for uet_file: " << mocInfo.uet_file);
-      return 0;
-      }
-    fread(uet.GetData(), sizeof(float), (ext3D[1]-ext3D[0]+1)*(ext3D[3]-ext3D[2]+1)*km, f);
-    fclose(f);
-
-    // read in vnt
-    f = fopen(mocInfo.vnt_file.c_str(), "rb");
-    if(f == NULL)
-      {
-      vtkErrorMacro("Error in opening vnt_file: " << mocInfo.vnt_file);
-      return 0;
-      }
-    retval = seekFile(f, mocInfo.vnt_first_record, ext3D[1]-ext3D[0]+1, ext3D[3]-ext3D[2]+1);
-    if(retval != 0)
-      {
-      vtkErrorMacro("Error during file seek for vnt_file: " << mocInfo.vnt_file);
-      return 0;
-      }
-    fread(vnt.GetData(), sizeof(float), (ext3D[1]-ext3D[0]+1)*(ext3D[3]-ext3D[2]+1)*km, f);
-    fclose(f);
-
-    if(mocInfo.byteswap)
-      {
-      uet.ByteSwap();
-      vnt.ByteSwap();
-      }
-
-    Matrix3DFloat dzt(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt which is used with partial bottom cells only
-    this->MHTWorkArrays->Compute(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km,
-                                 mocInfo.use_pbc, uet, vnt, tarea1GL, dzt, dz);
+    Matrix3DFloat dzt1GL;//(mocInfo.global_imt, mocInfo.global_jmt, mocInfo.global_km); // acbauer still needs to read in dzt1GL which is used with partial bottom cells only
+    this->MHTWorkArrays->Compute(mocInfo, imt1GL, jmt1GL, km, ext3D1GL, tarea1GL, dzt1GL, dz);
     }
 
   // mht_tmp is the output array from meridional_heat() method
@@ -1919,74 +1922,72 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::grid_stuff(Matrix2DDouble& htn,
-                             Matrix2DDouble& hte, Matrix2DFloat& dxu,
-                             Matrix2DFloat& dyu, Matrix2DFloat& tarea,
-                             int imt, int jmt, int imt2, int jmt2)
+int vtkMOCReader::grid_stuff(Matrix2DDouble& htn2GL,
+                             Matrix2DDouble& hte2GL, Matrix2DFloat& dxu1GL,
+                             Matrix2DFloat& dyu1GL, Matrix2DFloat& tarea1GL,
+                             int imt1GL, int jmt1GL, int imt2GL, int jmt2GL)
 {
   // create grid-related quantities needed for future calculations.
-  // dxu, dyu, and tarea are calculated.
+  // dxu1GL, dyu, and tarea are calculated.
 
   // allocate memory (local variables)
-  Matrix2DFloat dxt(imt,jmt);
-  Matrix2DFloat dyt(imt,jmt);
+  Matrix2DFloat dxt1GL(imt1GL,jmt1GL);
+  Matrix2DFloat dyt1GL(imt1GL,jmt1GL);
 
-  int i, j;
-
-  // dxu, dyu, dxt, dyt will have a ghost layer of 1
-  for(j=1; j<jmt2-1; j++)
+  // dxu1GL, dyu, dxt, dyt will have a ghost layer of 1
+  for(int j=1; j<jmt2GL-1; j++)
     {
-    for(i=1; i<imt2-1; i++)
+    for(int i=1; i<imt2GL-1; i++)
       {
-      dxu(i-1,j-1) = 0.5 * (htn(i,j) + htn(i+1,j));
-      dyu(i-1,j-1) = 0.5 * (hte(i,j) + hte(i,j+1));
-      dxt(i-1,j-1) = 0.5 * (htn(i,j) + htn(i,j-1));
-      dyt(i-1,j-1) = 0.5 * (hte(i,j) + hte(i-1,j));
+      dxu1GL(i-1,j-1) = 0.5 * (htn2GL(i,j) + htn2GL(i+1,j));
+      dyu1GL(i-1,j-1) = 0.5 * (hte2GL(i,j) + hte2GL(i,j+1));
+      dxt1GL(i-1,j-1) = 0.5 * (htn2GL(i,j) + htn2GL(i,j-1));
+      dyt1GL(i-1,j-1) = 0.5 * (hte2GL(i,j) + hte2GL(i-1,j));
       }
     }
 
   // tarea has ghost cell layer of 1
-  for(i=0; i<imt*jmt; i++)
+  for(int i=0; i<imt1GL*jmt1GL; i++)
     {
-    tarea(i) = dxt(i) * dyt(i);
+    tarea1GL(i) = dxt1GL(i) * dyt1GL(i);
     }
   return 1;
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::sw_4pt(Matrix2DFloat& xout, float factor, Matrix2DDouble& x,
-                          int imt, int jmt)
+void vtkMOCReader::sw_4pt(Matrix2DFloat& xout1GL, float factor, Matrix2DDouble& x1GL,
+                          int imt1GL, int jmt1GL)
 {
   // perform averaging over a neighborhood
   int i, j;
 
-  for(j=1; j<jmt; j++)
+  for(j=1; j<jmt1GL; j++)
     {
-    for(i=1; i<imt; i++)
+    for(i=1; i<imt1GL; i++)
       {
-      xout(i,j) = factor * x(i,j)   +
-        factor * x(i,j-1) +
-        factor * x(i-1,j) +
-        factor * x(i-1,j-1);
+      xout1GL(i,j) = factor * x1GL(i,j)   +
+        factor * x1GL(i,j-1) +
+        factor * x1GL(i-1,j) +
+        factor * x1GL(i-1,j-1);
       }
     }
 
   j = 0;
-  for(i=1; i<imt; i++)
+  for(i=1; i<imt1GL; i++)
     {
-    xout(i,j) = xout(i,j+1);
+    xout1GL(i,j) = xout1GL(i,j+1);
     }
 
   i = 0;
-  for(j=1; j<jmt; j++)
+  for(j=1; j<jmt1GL; j++)
     {
-    xout(i,j) = factor * x(i,j) +
-      factor * x(i,j-1) +
-      factor * x(imt-1,j) +
-      factor * x(imt-1,j-1);
+    xout1GL(i,j) = factor * x1GL(i,j) +
+      factor * x1GL(i,j-1) +
+      factor * x1GL(imt1GL-1,j) +
+      factor * x1GL(imt1GL-1,j-1);
     }
 
-  xout(0, 0) = xout(1,1);
+  xout1GL(0, 0) = xout1GL(1,1);
 }
 
 //-----------------------------------------------------------------------------
@@ -2402,7 +2403,7 @@ void vtkMOCReader::meridional_heat(
     {
     if(kmtb1GL(i+1,j1GL) == 0 && kmtb1GL(i+1,j2_1GL) > 0)
       {
-      global_mht0 += this->MHTWorkArrays->WorkY(i,j1GL-1);
+      global_mht0 += this->MHTWorkArrays->WorkY1GL(i+1,j1GL);
       }
     }
 
@@ -2410,7 +2411,6 @@ void vtkMOCReader::meridional_heat(
          global_mht0, mocInfo->global_imt,
          mocInfo->global_jmt, jIndexMin1GL, j2_1GL);
 
-  // optimized way to find mht
   // scan through all points of the layer and find all valid points
   // which are not land. record the latitude of the point as well as its work
   // value
@@ -2489,13 +2489,13 @@ void vtkMOCReader::GetMOCSize(MOCInfo* mocInfo, int* ny_mht, int* z)
 }
 
 //-----------------------------------------------------------------------------
-int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D1GL, int* ext3D2GL, int imt,
-                           int jmt, int km, Matrix2DDouble& uLat,
-                           Matrix2DDouble& uLong,
-                           Matrix2DDouble& htn, Matrix2DDouble& hte,
-                           Matrix1DFloat& dz, Matrix2DInt& global_kmt,
-                           Matrix2DInt& atl_kmt, Matrix2DInt& indopac_kmt,
-                           Matrix3DFloat& u, Matrix3DFloat& v, int imt2, int jmt2)
+int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D1GL, int* ext3D2GL, int imt1GL,
+                           int jmt1GL, int km, Matrix2DDouble& uLat1GL,
+                           Matrix2DDouble& uLong1GL,
+                           Matrix2DDouble& htn2GL, Matrix2DDouble& hte2GL,
+                           Matrix1DFloat& dz, Matrix2DInt& global_kmt1GL,
+                           Matrix2DInt& atl_kmt1GL, Matrix2DInt& indopac_kmt1GL,
+                           Matrix3DFloat& u1GL, Matrix3DFloat& v1GL, int imt2GL, int jmt2GL)
 {
   vtkNew<vtkTimerLog> timer;
   timer->StartTimer();
@@ -2507,22 +2507,22 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D1GL, int* ext3D2GL, int i
   // uLat
   int offset = mocInfo->global_imt * mocInfo->global_jmt * 0;
   this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D1GL, offset,
-                              imt, jmt, uLat);
+                              imt1GL, jmt1GL, uLat1GL);
 
   // uLong
   offset = mocInfo->global_imt * mocInfo->global_jmt * 1;
   this->LoadDataBlock2DDouble(mocInfo, mocInfo->grid_file, ext3D1GL, offset,
-                              imt, jmt, uLong);
+                              imt1GL, jmt1GL, uLong1GL);
 
   // htn
   offset = mocInfo->global_imt * mocInfo->global_jmt * 2;
   this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2GL, offset,
-                               imt2, jmt2, htn);
+                               imt2GL, jmt2GL, htn2GL);
 
   // hte
   offset = mocInfo->global_imt * mocInfo->global_jmt * 3;
   this->LoadDataBlock2DDouble2(mocInfo, mocInfo->grid_file, ext3D2GL, offset,
-                               imt2, jmt2, hte);
+                               imt2GL, jmt2GL, hte2GL);
 
   // read depths file. read the first number in each row.
   // process 0 reads it and broadcasts the values.
@@ -2568,27 +2568,27 @@ int vtkMOCReader::LoadData(MOCInfo* mocInfo, int* ext3D1GL, int* ext3D2GL, int i
     }
 
   // read kmt files
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_global_file, ext3D1GL, imt, jmt, global_kmt);
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_atl_file, ext3D1GL, imt, jmt, atl_kmt);
-  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_indopac_file, ext3D1GL, imt, jmt,
-                           indopac_kmt);
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_global_file, ext3D1GL, imt1GL, jmt1GL, global_kmt1GL);
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_atl_file, ext3D1GL, imt1GL, jmt1GL, atl_kmt1GL);
+  this->LoadDataBlock2DInt(mocInfo, mocInfo->kmt_indopac_file, ext3D1GL, imt1GL, jmt1GL,
+                           indopac_kmt1GL);
 
   // read velocity files
-  this->LoadDataBlock3DFloat(mocInfo, mocInfo->u_file, ext3D1GL, imt, jmt, km, u);
-  this->LoadDataBlock3DFloat(mocInfo, mocInfo->v_file, ext3D1GL, imt, jmt, km, v);
+  this->LoadDataBlock3DFloat(mocInfo, mocInfo->u_file, ext3D1GL, imt1GL, jmt1GL, km, u1GL);
+  this->LoadDataBlock3DFloat(mocInfo, mocInfo->v_file, ext3D1GL, imt1GL, jmt1GL, km, v1GL);
 
   if(mocInfo->byteswap)
     {
     // byteswap all arrays
-    uLat.ByteSwap();
-    uLong.ByteSwap();
-    htn.ByteSwap();
-    hte.ByteSwap();
-    global_kmt.ByteSwap();
-    atl_kmt.ByteSwap();
-    indopac_kmt.ByteSwap();
-    u.ByteSwap();
-    v.ByteSwap();
+    uLat1GL.ByteSwap();
+    uLong1GL.ByteSwap();
+    htn2GL.ByteSwap();
+    hte2GL.ByteSwap();
+    global_kmt1GL.ByteSwap();
+    atl_kmt1GL.ByteSwap();
+    indopac_kmt1GL.ByteSwap();
+    u1GL.ByteSwap();
+    v1GL.ByteSwap();
     }
 
   timer->StopTimer();
@@ -2657,7 +2657,7 @@ int vtkMOCReader::LoadDataBlock2DDouble(MOCInfo* mocInfo, std::string filename,
   FILE* f = fopen(filename.c_str(), "rb");
   if(f == NULL)
     {
-    vtkErrorMacro("Error in opening file: " << filename.c_str());
+    vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
     return 0;
     }
 
@@ -2824,7 +2824,7 @@ int vtkMOCReader::LoadDataBlock2DDouble2(MOCInfo* mocInfo, std::string filename,
   FILE* f = fopen(filename.c_str(), "rb");
   if(f == NULL)
     {
-    vtkErrorMacro("Error in opening file: " << filename.c_str());
+    vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
     return 0;
     }
 
@@ -3013,7 +3013,7 @@ int vtkMOCReader::LoadDataBlock2DInt(MOCInfo* mocInfo, std::string filename, int
   FILE* f = fopen(filename.c_str(), "rb");
   if(f == NULL)
     {
-    vtkErrorMacro("Error in opening file: " << filename.c_str());
+    vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
     return 0;
     }
 
@@ -3170,7 +3170,7 @@ int vtkMOCReader::LoadDataBlock3DFloat(MOCInfo* mocInfo, std::string filename,
   FILE* f = fopen(filename.c_str(), "rb");
   if(f == NULL)
     {
-    vtkErrorMacro("Error in opening file: " << filename.c_str());
+    vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
     return 0;
     }
 

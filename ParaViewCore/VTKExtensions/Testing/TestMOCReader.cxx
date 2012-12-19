@@ -34,12 +34,12 @@ int main()
     sum += mhtValues->GetTuple1(i);
     squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
     }
-  if(sum < 84.1 || sum > 84.2)
+  if(sum < 84.1 || sum > 84.2 || sum != sum)
     {
     vtkGenericWarningMacro("Global MHT sum " << sum << " but should be 84.1643.");
     return 1;
     }
-  if(squaredSum < 279. || squaredSum > 280.)
+  if(squaredSum < 279. || squaredSum > 280. || squaredSum != squaredSum)
     {
     vtkGenericWarningMacro("Global MHT squared sum " << squaredSum << " but should be 279.805.");
     return 1;
@@ -54,12 +54,12 @@ int main()
     sum += mhtValues->GetTuple1(i);
     squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
     }
-  if(sum < 150. || sum > 151.)
+  if(sum < 150. || sum > 151. || sum != sum)
     {
     vtkGenericWarningMacro("Atlantic MHT sum " << sum << " but should be 150.715.");
     return 1;
     }
-  if(squaredSum < 121. || squaredSum > 122.)
+  if(squaredSum < 121. || squaredSum > 122. || squaredSum != squaredSum)
     {
     vtkGenericWarningMacro("Atlantic MHT squared sum " << squaredSum << " but should be 121.712.");
     return 1;

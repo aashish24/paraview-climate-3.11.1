@@ -50,6 +50,15 @@ public:
 
   static int cshift(int i, int offset, int size);
 
+  // Description:
+  static int LoadDataBlock2DDouble(MOCInfo* mocinfo, std::string filename, int* ext3D,
+                                   int offset, int imt, int jmt, Matrix2DDouble& data);
+  static int LoadDataBlock2DDouble2(MOCInfo* mocinfo, std::string filename, int* ext3D,
+                                    int offset, int imt, int jmt,Matrix2DDouble& data);
+  static int LoadDataBlock2DInt(MOCInfo* mocinfo, std::string filename, int* ext3D,
+                                int imt, int jmt, Matrix2DInt& data);
+  static int LoadDataBlock3DFloat(MOCInfo* mocinfo, std::string filename, int* ext3D,
+                                  int imt, int jmt, int km, Matrix3DFloat& data);
 protected:
   vtkMOCReader();
   ~vtkMOCReader();
@@ -99,14 +108,6 @@ protected:
                Matrix1DFloat& dz, Matrix2DInt& global_kmt,
                Matrix2DInt& atl_kmt, Matrix2DInt& indopac_kmt,
                Matrix3DFloat& u, Matrix3DFloat& v, int imt2, int jmt2);
-  int LoadDataBlock2DDouble(MOCInfo* mocinfo, std::string filename, int* ext3D,
-                            int offset, int imt, int jmt, Matrix2DDouble& data);
-  int LoadDataBlock2DDouble2(MOCInfo* mocinfo, std::string filename, int* ext3D,
-                             int offset, int imt, int jmt,Matrix2DDouble& data);
-  int LoadDataBlock2DInt(MOCInfo* mocinfo, std::string filename, int* ext3D,
-                         int imt, int jmt, Matrix2DInt& data);
-  int LoadDataBlock3DFloat(MOCInfo* mocinfo, std::string filename, int* ext3D,
-                           int imt, int jmt, int km, Matrix3DFloat& data);
 
   static int compare_latitude(const void* x, const void* y);
 
