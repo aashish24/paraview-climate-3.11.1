@@ -823,17 +823,17 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
-// float printinfoacb(Matrix2DFloat& array, int i, int j)
-// {
-//   cerr << array(i,j) << endl;
-//   return array(i,j);
-// }
+float printinfoacb(Matrix2DFloat& array, int i, int j)
+{
+  cerr << array(i,j) << endl;
+  return array(i,j);
+}
 
-// float printinfoacb(Matrix3DFloat& array, int i, int j, int k)
-// {
-//   cerr << array(i,j,k) << endl;
-//   return array(i,j,k);
-// }
+float printinfoacb(Matrix3DFloat& array, int i, int j, int k)
+{
+  cerr << array(i,j,k) << endl;
+  return array(i,j,k);
+}
 
 class InternalMHTWorkArrays
 {
@@ -1715,7 +1715,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht, localJIndexMin1GL, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,0) = mht_temp(y);
@@ -1747,7 +1747,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht, localJIndexMin1GL, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,1) = mht_temp(y);
@@ -1779,7 +1779,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, imt1GL, ny_mht, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, indopac_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht, localJIndexMin1GL, localJIndexMin1GL, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,2) = mht_temp(y);
@@ -2403,9 +2403,9 @@ void vtkMOCReader::moc(MOCInfo* mocInfo, Matrix3DFloat& v1GL, Matrix3DFloat& w1G
 
 //-----------------------------------------------------------------------------
 void vtkMOCReader::meridional_heat(
-  MOCInfo* mocInfo,
-  Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL,
-  Matrix1DFloat& lat_mht, int imt1GL, int ny_mht, int jIndexMin1GL, float southern_lat,
+  MOCInfo* mocInfo, Matrix2DInt& kmtb1GL, Matrix2DFloat& tLat1GL,
+  Matrix1DFloat& lat_mht, int imt1GL, int jmt1GL, int ny_mht,
+  int localJIndexMin1GL, bool hasGlobalJIndexMin, float southern_lat,
   Matrix1DFloat& mht)
 {
   for(int i=0; i<ny_mht; i++)
@@ -2413,46 +2413,60 @@ void vtkMOCReader::meridional_heat(
     mht(i) = 0.0;
     }
 
-  printf("southernmost j with 1 ghost layer = %i\n", jIndexMin1GL);
+  printf("southernmost j with 1 ghost layer = %i\n", localJIndexMin1GL);
   printf("southernmost lat = %f\n", southern_lat);
 
   // zonal (over longitude range) integration to find heat transport
   // across southernmost grid circle in basin
   float global_mht0 = 0.0;
-  int j1GL = jIndexMin1GL-1; // this is jj-1 from original code
+  int j1GL = localJIndexMin1GL-1; // this is jj-1 from original code
   int j2_1GL = cshift(j1GL, 1, mocInfo->global_jmt+2);
-  //for(int i=0; i<mocInfo->global_imt; i++)
-  for(int i=1; i<imt1GL-1; i++)
+
+  //acbauer -- localJIndexMin1GL is out of bounds for process 1 of a 2 proc run
+
+  if(hasGlobalJIndexMin)
     {
-    if(kmtb1GL(i,j1GL) == 0 && kmtb1GL(i,j2_1GL) > 0)
+    vtkWarningMacro("!!!!!!!!!!!!!!!!!!!!!!!!! the out of bounds value is " << localJIndexMin1GL);
+    for(int i=1; i<imt1GL-1; i++)
       {
-      global_mht0 += this->MHTWorkArrays->WorkY1GL(i,j1GL);
+      if(kmtb1GL(i,j1GL) == 0 && kmtb1GL(i,j2_1GL) > 0)
+        {
+        global_mht0 += this->MHTWorkArrays->WorkY1GL(i,j1GL);
+        }
       }
     }
+  float tmp = global_mht0;
+  vtkMultiProcessController* controller = vtkMultiProcessController::GetGlobalController();
+  controller->AllReduce(&tmp, &global_mht0, 1, vtkCommunicator::SUM_OP);
 
   printf("mht0: %f for imt_local of %d jmt_local %d jIndexMin1GL %d j2_1gl %d\n",
          global_mht0, mocInfo->global_imt,
-         mocInfo->global_jmt, jIndexMin1GL, j2_1GL);
+         mocInfo->global_jmt, localJIndexMin1GL, j2_1GL);
 
   // scan through all points of the layer and find all valid points
   // which are not land. record the latitude of the point as well as its work
   // value
-  for(int i=0;i<mocInfo->global_imt;i++)
+  for(int i=1;i<imt1GL-1;i++)
     {
-    for(int j=0;j<mocInfo->global_jmt;j++)
+    for(int j=1;j<jmt1GL-1;j++)
       {
-      if(kmtb1GL(i+1, j+1) > 0)
+      if(kmtb1GL(i, j) > 0)
         {
-        int mhtArrayIndex = this->GetLatitudeIndex(lat_mht, tLat1GL(i+1, j+1));
+        int mhtArrayIndex = this->GetLatitudeIndex(lat_mht, tLat1GL(i, j));
         if(mhtArrayIndex >= 0)
           {
-          mht(mhtArrayIndex) += this->MHTWorkArrays->Work1(i,j);
+          mht(mhtArrayIndex) += this->MHTWorkArrays->Work1(i-1,j-1);
           }
         }
       }
     }
 
-  // acbauer -- do parallel sum here!!!
+  std::vector<float> tmpArray(mht.GetSize());
+  for(unsigned i=0;i<mht.GetSize();i++)
+    {
+    tmpArray[i] = mht(i);
+    }
+  controller->AllReduce(&tmpArray[0], mht.GetData(), tmpArray.size(), vtkCommunicator::SUM_OP);
 
   for(int j=1;j<ny_mht;j++)
     {

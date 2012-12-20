@@ -97,7 +97,7 @@ protected:
            int imt, int jmt, Matrix2DFloat& psi);
 
   void meridional_heat(MOCInfo* mocInfo, Matrix2DInt& kmtb, Matrix2DFloat& tLat,
-                       Matrix1DFloat& lats, int imt1GL, int ny, int jj, float southern_lat,
+                       Matrix1DFloat& lats, int imt1GL, int jmt1GL, int ny, int jj, bool hasGlobalJIndexMin, float southern_lat,
                        Matrix1DFloat& mht);
 
   void GetMOCSize(MOCInfo*, int* y, int* z);
