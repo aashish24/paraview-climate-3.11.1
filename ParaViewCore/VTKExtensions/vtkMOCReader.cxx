@@ -811,18 +811,6 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
-float printinfoacb(Matrix2DFloat& array, int i, int j)
-{
-  cerr << array(i,j) << endl;
-  return array(i,j);
-}
-
-float printinfoacb(Matrix3DFloat& array, int i, int j, int k)
-{
-  cerr << array(i,j,k) << endl;
-  return array(i,j,k);
-}
-
 class InternalMHTWorkArrays
 {
 // The default constructor and destructor should be sufficient.
@@ -1012,13 +1000,26 @@ int vtkMOCReader::RequestInformation(vtkInformation *vtkNotUsed(request),
 
   int ny_mht, z;
   this->GetMOCSize(&mocInfo, &ny_mht, &z);
-  int ext[6] = {0, ny_mht-1, 0, z-1, 0, 0};
-  outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
+  if(mocInfo.do_msf)
+    {
+    int ext[6] = {0, ny_mht-1, 0, z-1, 0, 0};
+    outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
+    }
+  else
+    {
+    int ext[6] = {0, -1, 0, -1, 0, -1};
+    outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
+    }
 
+  outInfo = outputVector->GetInformationObject(1);
   if(mocInfo.do_mht)
     {
-    outInfo = outputVector->GetInformationObject(1);
-    ext[3] = 0;
+    int ext[6] = {0, ny_mht-1, 0, 0, 0, 0};
+    outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
+    }
+  else
+    {
+    int ext[6] = {0, -1, 0, -1, 0, -1};
     outInfo->Set(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT(), ext, 6);
     }
 
@@ -1703,7 +1704,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht, localJIndexMin1GL, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, global_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht,
+                            localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,0) = mht_temp(y);
@@ -1735,7 +1737,8 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
       } // mocInfo.do_msf
     if(mocInfo.do_mht)
       {
-      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht, localJIndexMin1GL, localJIndexMin1GL, southern_lat, mht_temp);
+      this->meridional_heat(&mocInfo, atl_kmt1GL, tLat1GL, lat_mht, imt1GL, jmt1GL, ny_mht,
+                            localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, mht_temp);
       for(int y=0; y<ny_mht; y++)
         {
         mht(y,1) = mht_temp(y);
@@ -1877,7 +1880,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* mocGrid, vtkRectilinearGrid* 
   x_coordsMHT->SetNumberOfTuples(extMHT[1]-extMHT[0]+1);
   for(int i=extMHT[0]; i<=extMHT[1]; i++)
     {
-    x_coords->SetValue(i-ext[0], lat_mht(i));
+    x_coordsMHT->SetValue(i-extMHT[0], lat_mht(i));
     }
   mhtGrid->SetXCoordinates(x_coordsMHT.GetPointer());
   mhtGrid->SetYCoordinates(z_coords.GetPointer()); // a single point
@@ -3377,7 +3380,7 @@ void vtkMOCReader::FindSouthern(int imt1GL, int jmt1GL, int* ext3D1GL, int* ext3
     vtkMultiProcessController::GetGlobalController();
 
   // the minimum j-index is the true j-index
-  int tempJ = *localJIndexMin1GL + ext3D1GL[2];
+  int tempJ = (found == true ? *localJIndexMin1GL + ext3D1GL[2] : VTK_INT_MAX);
   int globalJIndexMin1GL = VTK_INT_MAX;
   controller->AllReduce(&tempJ, &globalJIndexMin1GL, 1, vtkCommunicator::MIN_OP);
   *hasGlobalJIndexMin = (tempJ == globalJIndexMin1GL);
