@@ -737,10 +737,6 @@ public:
     this->v_file = "";
     this->uet_file = "";
     this->vnt_file = "";
-    this->u_first_record = 0;
-    this->v_first_record = 0;
-    this->uet_first_record = 0;
-    this->vnt_first_record = 0;
     this->do_global = false;
     this->do_atl = false;
     this->do_indopac = false;
@@ -760,8 +756,6 @@ public:
     data << this->kmt_global_file << this->kmt_atl_file << this->kmt_indopac_file;
     data << this->in_depths << this->grid_file << this->u_file << this->v_file;
     data << this->uet_file << this->vnt_file;
-    data << this->u_first_record << this->v_first_record;
-    data << this->uet_first_record << this->vnt_first_record;
     data << static_cast<int>(this->do_global) << static_cast<int>(this->do_atl);
     data << static_cast<int>(this->do_indopac) << static_cast<int>(this->do_msf);
     data << static_cast<int>(this->do_mht) << static_cast<int>(this->use_pbc);
@@ -776,8 +770,6 @@ public:
     data >> this->kmt_global_file >> this->kmt_atl_file >> this->kmt_indopac_file;
     data >> this->in_depths >> this->grid_file >> this->u_file >> this->v_file;
     data >> this->uet_file >> this->vnt_file;
-    data >> this->u_first_record >> this->v_first_record;
-    data >> this->uet_first_record >> this->vnt_first_record;
     int tmp;
     data >> tmp;
     this->do_global = static_cast<bool>(tmp);
@@ -810,10 +802,6 @@ public:
   std::string v_file;               // v-velocities
   std::string uet_file;             // for MHT computation
   std::string vnt_file;             // for MHT computation
-  int u_first_record;           // where the u-velocities start in the file
-  int v_first_record;           // where the v-velocities start in the file
-  int uet_first_record;         // where the u-velocities start in the file
-  int vnt_first_record;         // where the v-velocities start in the file
   bool do_global;              // compute global quantities
   bool do_atl;                 // compute atlantic quantities
   bool do_indopac;             // compute indian-pacific quantities
