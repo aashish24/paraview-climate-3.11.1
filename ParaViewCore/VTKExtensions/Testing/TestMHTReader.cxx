@@ -1,6 +1,6 @@
 #include "vtkDataSet.h"
 #include "vtkDummyController.h"
-#include "vtkMOCReader.h"
+#include "vtkMHTReader.h"
 #include "vtkNew.h"
 #include "vtkPointData.h"
 
@@ -8,11 +8,11 @@ int main()
 {
   vtkNew<vtkDummyController> controller;
   controller->SetGlobalController(controller.GetPointer());
-  vtkNew<vtkMOCReader> reader;
+  vtkNew<vtkMHTReader> reader;
   reader->SetFileName("/home/acbauer/DATA/ParaViewData/Data/MHT/mhttest1/no_pbc_in_msf.mht");
   reader->Update();
 
-  vtkDataSet* mhtGrid = vtkDataSet::SafeDownCast(reader->GetOutput(1));
+  vtkDataSet* mhtGrid = vtkDataSet::SafeDownCast(reader->GetOutput());
   if(mhtGrid == NULL)
     {
     vtkGenericWarningMacro("Cannot find MHT output grid.");

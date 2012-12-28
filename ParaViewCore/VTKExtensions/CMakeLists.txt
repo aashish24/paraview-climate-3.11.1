@@ -17,6 +17,7 @@ IF(NOT WIN32)
 ENDIF(NOT WIN32)
 
 SET (Kit_SRCS
+  vtkAbstractPOPReader.cxx
   vtkAMRDualClip.cxx
   vtkAMRDualContour.cxx
   vtkAMRDualGridHelper.cxx
@@ -73,6 +74,7 @@ SET (Kit_SRCS
   vtkMaterialInterfaceToProcMap.cxx
   vtkMergeArrays.cxx
   vtkMergeCompositeDataSet.cxx
+  vtkMHTReader.cxx
   vtkMinMax.cxx
   vtkMPICompositeManager.cxx
   vtkMOCReader.cxx
@@ -89,6 +91,7 @@ SET (Kit_SRCS
   vtkPlotEdges.cxx
   vtkPointHandleRepresentationSphere.cxx
   vtkPolyLineToRectilinearGridFilter.cxx
+  vtkPOPMatrices.cxx
   vtkPPhastaReader.cxx
   vtkPriorityHelper.cxx
   vtkPSciVizContingencyStats.cxx
@@ -262,12 +265,14 @@ SET_SOURCE_FILES_PROPERTIES(
   )
 
 SET_SOURCE_FILES_PROPERTIES(
+  vtkAbstractPOPReader.cxx
   vtkAnimationPlayer.cxx
   vtkCacheSizeKeeper.cxx
   vtkCameraManipulatorGUIHelper.cxx
   vtkCellIntegrator.cxx
   vtkImageCompressor.cxx
   vtkPEnSightReader.cxx
+  vtkPOPMatrices.cxx
   vtkPVAnimationCue.cxx
   vtkPVCueManipulator.cxx
   vtkPVJoystickFly.cxx
