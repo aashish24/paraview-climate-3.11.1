@@ -66,12 +66,5 @@ protected:
 private:
   vtkMOCReader(const vtkMOCReader&);          // not implemented
   void operator = (const vtkMOCReader&);   // not implemented
-
-  // Description:
-  // the namelist file containing all input variables
-  char* FileName;
 };
-
-
-
 #endif

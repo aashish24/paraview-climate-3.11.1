@@ -422,10 +422,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
           psi(y,k,0) = psi_temp_old(k,y);
           }
         }
-      } // mocInfo.do_msf
-    if(mocInfo.do_mht)
-      {
-      //this->meridional_heat(&mocInfo, global_kmt, tLat, lat_mht, ny_mht, jj, southern_lat, worky, work1, mht_temp);
       }
     }
 
@@ -963,58 +959,6 @@ void vtkMOCReader::moc(POPInputInformation* popInfo, Matrix3DFloat& v1GL, Matrix
 
   // process 0 broadcasts results to everyone
   controller->Broadcast(psi.GetData(), ny_mht*popInfo->global_km, 0);
-}
-
-//-----------------------------------------------------------------------------
-void vtkMOCReader::FindSouthern(int imt, int jmt, int* ext3D, int* real_ext3D,
-                                Matrix2DInt& kmtb, Matrix2DFloat& tLat, int* local_jj,
-                                bool* has_global_jj, float* southern_lat)
-{
-  // need to initialize these variables since on some processes
-  // they may not get set before they're used
-  int jj = VTK_INT_MAX, true_jj = VTK_INT_MAX;
-  *local_jj = VTK_INT_MAX;
-
-  // find j index of southernmost ocean point in basin
-  bool found = false;
-  for(int j=1; j<jmt-1; j++)
-    {
-    for(int i=1; i<imt-1; i++)
-      {
-      if(kmtb(i,j) != 0)
-        {
-        jj = j + ext3D[2];
-        *local_jj = j;
-        found = true;
-        break;
-        }
-      }
-    if(found)
-      {
-      break;
-      }
-    }
-
-  vtkMultiProcessController* controller =
-    vtkMultiProcessController::GetGlobalController();
-
-  // the minimum j-index is the true j-index
-  controller->AllReduce(&jj, &true_jj, 1, vtkCommunicator::MIN_OP);
-  *has_global_jj = (true_jj == jj);
-
-  // find southern_lat, and collect it at process 0
-  float my_southern_lat;
-  if(jj == true_jj && real_ext3D[0] == 0)
-    {
-    // ydeg(jj-1)
-    my_southern_lat = 0.5*(tLat(0, *local_jj) + tLat(0, *local_jj-1));
-    }
-  else
-    {
-    my_southern_lat = std::numeric_limits<float>::max();
-    }
-  controller->Reduce(&my_southern_lat, southern_lat, 1,
-                     vtkCommunicator::MIN_OP, 0);
 }
 
 //-----------------------------------------------------------------------------
