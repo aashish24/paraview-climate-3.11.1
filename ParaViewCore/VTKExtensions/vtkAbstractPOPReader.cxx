@@ -1538,8 +1538,8 @@ void vtkAbstractPOPReader::FindSouthern(int imt1GL, int jmt1GL, int* ext3D1GL, i
     {
     my_southern_lat = std::numeric_limits<float>::max();
     }
-  controller->Reduce(&my_southern_lat, southern_lat, 1,
-                     vtkCommunicator::MIN_OP, 0);
+  controller->AllReduce(&my_southern_lat, southern_lat, 1,
+                        vtkCommunicator::MIN_OP);
 }
 
 //-----------------------------------------------------------------------------
