@@ -360,6 +360,18 @@ int vtkAbstractPOPReader::SingleProcessParseMetaFile(
         return 0;
         }
       }
+    if(name.compare("pbc_file") == 0)
+      {
+      std::string equal;
+      line2 >> equal;
+      line2 >> popinfo->pbc_file;
+      popinfo->pbc_file = popinfo->pbc_file.substr(1, popinfo->pbc_file.length()-2);
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      }
     if(name.compare("u_file") == 0)
       {
       std::string equal;
@@ -466,6 +478,26 @@ int vtkAbstractPOPReader::SingleProcessParseMetaFile(
       if(dostr[0] == 't' || dostr[0] == 'T')
         {
         popinfo->do_indopac = true;
+        }
+      }
+    if(name.compare("use_pbc") == 0)
+      {
+      std::string equal, dostr;
+      line2 >> equal;
+      line2 >> dostr;
+      retval = checkParse(line, line2.rdstate());
+      if(retval == 0)
+        {
+        return 0;
+        }
+      dostr = dostr.substr(1, dostr.length()-2);
+      if(dostr[0] == 'f' || dostr[0] == 'F')
+        {
+        popinfo->use_pbc = false;
+        }
+      if(dostr[0] == 't' || dostr[0] == 'T')
+        {
+        popinfo->use_pbc = true;
         }
       }
     if(name.compare("byteswap") == 0)

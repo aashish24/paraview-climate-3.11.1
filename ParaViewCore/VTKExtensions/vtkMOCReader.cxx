@@ -40,90 +40,81 @@ namespace
     float lat;   // latitude of point
     float work;  // the vertical velocity normalized by some quantities
   };
-}
 
-class InternalPBCWorkArrays
-{
-public:
-  Matrix2DFloat DZT1GL; // needed for MHT
-  Matrix2DFloat DZU1GL; // needed for MOC
-
-  void Clear()
+  class PBCArray
   {
-    this->DZT1GL.Clear();
-    this->DZU1GL.Clear();
+  public:
+    Matrix3DFloat DZU1GL; // needed for MOC
+
+    void Clear()
+    {
+      this->DZU1GL.Clear();
+    }
+    void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km,
+                 int* ext3D1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz);
+  };
+
+  void PBCArray::Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km,
+                         int* ext3D1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz)
+  {
+    // read in pbc file
+    Matrix2DDouble dzbc1GL(imt1GL, jmt1GL);
+    vtkAbstractPOPReader::LoadDataBlock2DDouble(&popInfo, popInfo.pbc_file,  ext3D1GL,
+                                                0, imt1GL, jmt1GL, dzbc1GL);
+    if(popInfo.byteswap)
+      {
+      dzbc1GL.ByteSwap();
+      }
+
+    this->DZU1GL.Allocate(imt1GL, jmt1GL, km);
+    Matrix3DFloat dzt1GL(imt1GL, jmt1GL, km);
+
+    for(int k=0; k<km; k++)
+      {
+      for(int j=0; j<jmt1GL; j++)
+        {
+        for(int i=0; i<imt1GL; i++)
+          {
+          if(global_kmt1GL(i,j) == k+1)
+            {
+            dzt1GL(i,j,k) = dzbc1GL(i,j);
+            }
+          else
+            {
+            dzt1GL(i,j,k) = dz(k);
+            }
+          }
+        }
+
+      // dzu = min of surrounding dzt's
+      int ip1;
+      for(int j=0; j<jmt1GL-1; j++)
+        {
+        for(int i=0; i<imt1GL; i++)
+          {
+          if(i==imt1GL-1)
+            {
+            ip1 = 2; // because of already existing ghost cells the wrap around is more
+            }
+          else
+            {
+            ip1 = i + 1;
+            }
+          this->DZU1GL(i,j,k) = std::min(std::min(std::min(dzt1GL(i,j,k),
+                                                           dzt1GL(ip1,j,k)),
+                                                  dzt1GL(i,j+1,k)),
+                                         dzt1GL(ip1,j+1,k));
+          }
+        }
+
+      // assume top row is land
+      for(int i=0; i<imt1GL; i++)
+        {
+        this->DZU1GL(i,jmt1GL-1,k) = 0;
+        }
+      }
   }
-  void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, Matrix1DFloat& dz);
-};
-
-//void InternalPBCWorkArrays::Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, Matrix1DFloat& dz)
-void InternalPBCWorkArrays::Compute(POPInputInformation& , int, int, int , Matrix1DFloat& )
-{
-  // // read in pbc file
-  // Matrix2DDouble dzbc1GL(imt1GL, jmt1GL);
-  // this->DZT1GL->Allocate(imt1GL, jmt1GL, km);
-  // this->DZU1GL->Allocate(imt1GL, jmt1GL, km);
-  // f = fopen(pbc_file.c_str(), "rb");
-  // if(f == NULL)
-  //   {
-  //   fprintf(stderr,"Error in opening pbc_file: %s\n", pbc_file.c_str());
-  //   fprintf(stderr, "Program will now abort...\n");
-  //   return 0;
-  //   }
-  // fread(dzbc1GL.getData(), sizeof(double), imt1GL*jmt1GL, f);
-  // fclose(f);
-  // printf("done reading in pbc file\n");
-
-  // if(popInfo.byteswap)
-  //   {
-  //   dzbc1GL.ByteSwap();
-  //   }
-
-  // for(int k=0; k<km; k++)
-  //   {
-  //   for(int j=0; j<jmt1GL; j++)
-  //     {
-  //     for(int i=0; i<imt1GL; i++)
-  //       {
-  //       if(kmt(i,j) == k+1)
-  //         {
-  //         dzt(i,j,k) = dzbc1GL(i,j);
-  //         }
-  //       else
-  //         {
-  //         dzt(i,j,k) = dz(k);
-  //         }
-  //       }
-  //     }
-
-  //   // dzu = min of surrounding dzt's
-  //   int ip1;
-  //   for(int j=0; j<jmt1GL-1; j++)
-  //     {
-  //     for(int i=0; i<imt1GL; i++)
-  //       {
-  //       if(i==imt1GL-1)
-  //         {
-  //         ip1 = 0;
-  //       }
-  //       else
-  //         {
-  //         ip1 = i + 1;
-  //         }
-  //       dzu(i,j,k) = min(min(min(dzt(i,j,k),
-  //                                dzt(ip1,j,k)),
-  //                            dzt(i,j+1,k)),
-  //                        dzt(ip1,j+1,k));
-  //       }
-  //     }
-
-  //   // assume top row is land
-  //   for(int i=0; i<imt1GL; i++)
-  //     {
-  //     dzu(i,jmt1GL-1,k) = 0;
-  //     }
-  //   }
-}
+} // end anonymous namespace
 
 vtkStandardNewMacro(vtkMOCReader);
 
@@ -371,9 +362,23 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
   uLat1GL.Clear();
   uLong1GL.Clear();
 
+  if(popInfo.use_pbc == true)
+    {
+    }
+
+  PBCArray pbcArray;
   // calculate w from u and v
   Matrix3DFloat w1GL(imt1GL, jmt1GL, km);
-  this->wcalc(dz, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL, u1GL, v1GL, w1GL, imt1GL, jmt1GL, km);
+  if(popInfo.use_pbc == true)
+    {
+    pbcArray.Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, global_kmt1GL, dz);
+    this->wcalc_pbc(pbcArray.DZU1GL, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL,
+                    u1GL, v1GL, w1GL, imt1GL, jmt1GL);
+    }
+  else
+    {
+    this->wcalc(dz, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL, u1GL, v1GL, w1GL, imt1GL, jmt1GL, km);
+    }
   u1GL.Clear();  // not needed anymore
 
   // set up latitude grid to be used and allocate arrays
@@ -395,9 +400,6 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
   // psi[][][2] -- indo-pacific moc
   Matrix3DFloat psi(ny_mht, km, 3);
 
-  // dzu is for partial bottom cells
-  Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);
-
 // calculate overturning streamfunctions
 
 // first do global
@@ -411,7 +413,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
 
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
@@ -435,7 +437,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
                        &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
@@ -459,7 +461,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
                        &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, dzu1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
@@ -688,27 +690,19 @@ void vtkMOCReader::wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu1GL,
 }
 
 //-----------------------------------------------------------------------------
-void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
-                             Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
-                             Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w, int imt, int jmt)
+void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu1GL, Matrix2DFloat& dxu1GL,
+                             Matrix2DFloat& dyu1GL, Matrix2DFloat& tarea1GL, Matrix2DInt& kmt1GL,
+                             Matrix3DFloat& u1GL, Matrix3DFloat& v1GL, Matrix3DFloat& w1GL, int imt1GL, int jmt1GL)
 {
   // calculate w ,the vertical velocities, since only u and v are read
   // from file.
   // this version is used when using partial bottom cells.
 
-  int i, j, k, im1, jm1;
-  double p5 = 0.5;
   double fue, fuw, fvn, fvs;
-  double wtkb;
 
-  for(i=0; i<imt*jmt; i++)
+  for(int j=0; j<jmt1GL; j++)
     {
-    wtkb = 0.0; // set bottom velocity to zero
-    }
-
-  for(j=0; j<jmt; j++)
-    {
-    jm1 = j - 1;
+    int jm1 = j - 1;
     if(j==0)
       {
       // make the value wrap around, which differs from the fortran code
@@ -716,43 +710,42 @@ void vtkMOCReader::wcalc_pbc(Matrix3DFloat& dzu, Matrix2DFloat& dxu,
       jm1 = 0;  // fortran code
       }
 
-    for(i=0; i<imt; i++)
+    for(int i=0; i<imt1GL; i++)
       {
-      im1 = i - 1;
+      int im1 = i - 1;
       if(i==0)
         {
-        im1 = imt-1;
+        im1 = imt1GL-3; // -3 is because of ghost cell
         }
 
-      wtkb = 0.0;  // vertical velocity is zero at bottom of cell
+      double wtkb = 0.0;  // vertical velocity is zero at bottom of cell
 
-      if(kmt(i,j) != 0)
+      if(kmt1GL(i,j) != 0)
         {
-        for(k=kmt(i,j)-1; k>=0; k--)
+        for(int k=kmt1GL(i,j)-1; k>=0; k--)
           {
           // advection fluxes
-          fue = p5 * (u(i,j  ,k) * dyu(i,j  ) * dzu(i,j  ,k) +
-                      u(i,jm1,k) * dyu(i,jm1) * dzu(i,jm1,k));
+          fue = 0.5 * (u1GL(i,j  ,k) * dyu1GL(i,j  ) * dzu1GL(i,j  ,k) +
+                      u1GL(i,jm1,k) * dyu1GL(i,jm1) * dzu1GL(i,jm1,k));
 
-          fuw = p5 * (u(im1,j  ,k) * dyu(im1,j  ) * dzu(im1,j  ,k) +
-                      u(im1,jm1,k) * dyu(im1,jm1) * dzu(im1,jm1,k));
+          fuw = 0.5 * (u1GL(im1,j  ,k) * dyu1GL(im1,j  ) * dzu1GL(im1,j  ,k) +
+                      u1GL(im1,jm1,k) * dyu1GL(im1,jm1) * dzu1GL(im1,jm1,k));
 
-          fvn = p5 * (v(i  ,j,k) * dxu(i  ,j) * dzu(i  ,j,k) +
-                      v(im1,j,k) * dxu(im1,j) * dzu(im1,j,k));
+          fvn = 0.5 * (v1GL(i  ,j,k) * dxu1GL(i  ,j) * dzu1GL(i  ,j,k) +
+                      v1GL(im1,j,k) * dxu1GL(im1,j) * dzu1GL(im1,j,k));
 
-          fvs = p5 * (v(i  ,jm1,k) * dxu(i  ,jm1) * dzu(i  ,jm1,k) +
-                      v(im1,jm1,k) * dxu(im1,jm1) * dzu(im1,jm1,k));
+          fvs = 0.5 * (v1GL(i  ,jm1,k) * dxu1GL(i  ,jm1) * dzu1GL(i  ,jm1,k) +
+                      v1GL(im1,jm1,k) * dxu1GL(im1,jm1) * dzu1GL(im1,jm1,k));
 
           // vertical velocity from top of box from continuity equation
-          w(i,j,k) = wtkb - (fvn - fvs + fue - fuw)/tarea(i,j);
+          w1GL(i,j,k) = wtkb - (fvn - fvs + fue - fuw)/tarea1GL(i,j);
 
           // top value becomes bottom for next pass
-          wtkb = w(i,j,k);
+          wtkb = w1GL(i,j,k);
           }
         }
       }
     }
-
 
   printf("done calculating w\n");
 }

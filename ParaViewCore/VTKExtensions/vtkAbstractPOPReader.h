@@ -43,6 +43,7 @@ public:
     this->kmt_atl_file = "";
     this->kmt_indopac_file = "";
     this->in_depths = "";
+    this->pbc_file = "";
     this->grid_file = "";
     this->u_file = "";
     this->v_file = "";
@@ -65,7 +66,7 @@ public:
     data << this->global_imt << this->global_jmt << this->global_km;
     data << this->ysouth_mht << this->ynorth_mht << this->dy_mht;
     data << this->kmt_global_file << this->kmt_atl_file << this->kmt_indopac_file;
-    data << this->in_depths << this->grid_file << this->u_file << this->v_file;
+    data << this->in_depths << this->pbc_file << this->grid_file << this->u_file << this->v_file;
     data << this->uet_file << this->vnt_file;
     data << static_cast<int>(this->do_global) << static_cast<int>(this->do_atl);
     data << static_cast<int>(this->do_indopac) << static_cast<int>(this->do_msf);
@@ -79,7 +80,7 @@ public:
     data >> this->global_imt >> this->global_jmt >> this->global_km;
     data >> this->ysouth_mht >> this->ynorth_mht >> this->dy_mht;
     data >> this->kmt_global_file >> this->kmt_atl_file >> this->kmt_indopac_file;
-    data >> this->in_depths >> this->grid_file >> this->u_file >> this->v_file;
+    data >> this->in_depths >> this->pbc_file >> this->grid_file >> this->u_file >> this->v_file;
     data >> this->uet_file >> this->vnt_file;
     int tmp;
     data >> tmp;
@@ -108,6 +109,7 @@ public:
   std::string kmt_atl_file;         // atlantic
   std::string kmt_indopac_file;     // indian and pacific
   std::string in_depths;            // index of max depth
+  std::string pbc_file;             // partial bottom cell file
   std::string grid_file;            // grid information
   std::string u_file;               // u-velocities
   std::string v_file;               // v-velocities
