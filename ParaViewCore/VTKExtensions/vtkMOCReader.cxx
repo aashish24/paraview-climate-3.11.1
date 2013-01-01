@@ -40,80 +40,6 @@ namespace
     float lat;   // latitude of point
     float work;  // the vertical velocity normalized by some quantities
   };
-
-  class PBCArray
-  {
-  public:
-    Matrix3DFloat DZU1GL; // needed for MOC
-
-    void Clear()
-    {
-      this->DZU1GL.Clear();
-    }
-    void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km,
-                 int* ext3D1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz);
-  };
-
-  void PBCArray::Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km,
-                         int* ext3D1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz)
-  {
-    // read in pbc file
-    Matrix2DDouble dzbc1GL(imt1GL, jmt1GL);
-    vtkAbstractPOPReader::LoadDataBlock2DDouble(&popInfo, popInfo.pbc_file,  ext3D1GL,
-                                                0, imt1GL, jmt1GL, dzbc1GL);
-    if(popInfo.byteswap)
-      {
-      dzbc1GL.ByteSwap();
-      }
-
-    this->DZU1GL.Allocate(imt1GL, jmt1GL, km);
-    Matrix3DFloat dzt1GL(imt1GL, jmt1GL, km);
-
-    for(int k=0; k<km; k++)
-      {
-      for(int j=0; j<jmt1GL; j++)
-        {
-        for(int i=0; i<imt1GL; i++)
-          {
-          if(global_kmt1GL(i,j) == k+1)
-            {
-            dzt1GL(i,j,k) = dzbc1GL(i,j);
-            }
-          else
-            {
-            dzt1GL(i,j,k) = dz(k);
-            }
-          }
-        }
-
-      // dzu = min of surrounding dzt's
-      int ip1;
-      for(int j=0; j<jmt1GL-1; j++)
-        {
-        for(int i=0; i<imt1GL; i++)
-          {
-          if(i==imt1GL-1)
-            {
-            ip1 = 2; // because of already existing ghost cells the wrap around is more
-            }
-          else
-            {
-            ip1 = i + 1;
-            }
-          this->DZU1GL(i,j,k) = std::min(std::min(std::min(dzt1GL(i,j,k),
-                                                           dzt1GL(ip1,j,k)),
-                                                  dzt1GL(i,j+1,k)),
-                                         dzt1GL(ip1,j+1,k));
-          }
-        }
-
-      // assume top row is land
-      for(int i=0; i<imt1GL; i++)
-        {
-        this->DZU1GL(i,jmt1GL-1,k) = 0;
-        }
-      }
-  }
 } // end anonymous namespace
 
 vtkStandardNewMacro(vtkMOCReader);
@@ -366,13 +292,13 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
     {
     }
 
-  PBCArray pbcArray;
+  PBCArrays pbcArrays;
   // calculate w from u and v
   Matrix3DFloat w1GL(imt1GL, jmt1GL, km);
   if(popInfo.use_pbc == true)
     {
-    pbcArray.Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, global_kmt1GL, dz);
-    this->wcalc_pbc(pbcArray.DZU1GL, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL,
+    pbcArrays.Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, global_kmt1GL, dz);
+    this->wcalc_pbc(pbcArrays.DZU1GL, dxu1GL, dyu1GL, tarea1GL, global_kmt1GL,
                     u1GL, v1GL, w1GL, imt1GL, jmt1GL);
     }
   else
@@ -413,7 +339,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
 
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, global_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArrays.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
@@ -437,7 +363,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
                        &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, atl_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArrays.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array
@@ -461,7 +387,7 @@ int vtkMOCReader::CalculateMOC(vtkRectilinearGrid* output, int* ext)
                        &localJIndexMin1GL, &hasGlobalJIndexMin, &southern_lat);
     if(popInfo.do_msf)
       {
-      this->moc(&popInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArray.DZU1GL, lat_mht,
+      this->moc(&popInfo, v1GL, w1GL, indopac_kmt1GL, tLat1GL, dxu1GL, tarea1GL, dz, pbcArrays.DZU1GL, lat_mht,
                 ny_mht, localJIndexMin1GL, hasGlobalJIndexMin, southern_lat, imt1GL, jmt1GL, psi_temp_old);
 
       // copy values to correct array

@@ -49,88 +49,6 @@ int LoadData3D(
   return 1;
 }
 
-// class InternalPBCWorkArrays
-// {
-// public:
-//   Matrix2DFloat DZT1GL; // needed for MHT
-//   Matrix2DFloat DZU1GL; // needed for MOC
-
-//   void Clear()
-//   {
-//     this->DZT1GL.Clear();
-//     this->DZU1GL.Clear();
-//   }
-//   void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, Matrix1DFloat& dz);
-// };
-
-// void InternalPBCWorkArrays::Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, Matrix1DFloat& dz)
-// {
-//   // // read in pbc file
-//   // Matrix2DDouble dzbc1GL(imt1GL, jmt1GL);
-//   // this->DZT1GL->Allocate(imt1GL, jmt1GL, km);
-//   // this->DZU1GL->Allocate(imt1GL, jmt1GL, km);
-//   // f = fopen(pbc_file.c_str(), "rb");
-//   // if(f == NULL)
-//   //   {
-//   //   fprintf(stderr,"Error in opening pbc_file: %s\n", pbc_file.c_str());
-//   //   fprintf(stderr, "Program will now abort...\n");
-//   //   return 0;
-//   //   }
-//   // fread(dzbc1GL.getData(), sizeof(double), imt1GL*jmt1GL, f);
-//   // fclose(f);
-//   // printf("done reading in pbc file\n");
-
-//   // if(popInfo.byteswap)
-//   //   {
-//   //   dzbc1GL.ByteSwap();
-//   //   }
-
-//   // for(int k=0; k<km; k++)
-//   //   {
-//   //   for(int j=0; j<jmt1GL; j++)
-//   //     {
-//   //     for(int i=0; i<imt1GL; i++)
-//   //       {
-//   //       if(kmt(i,j) == k+1)
-//   //         {
-//   //         dzt(i,j,k) = dzbc1GL(i,j);
-//   //         }
-//   //       else
-//   //         {
-//   //         dzt(i,j,k) = dz(k);
-//   //         }
-//   //       }
-//   //     }
-
-//   //   // dzu = min of surrounding dzt's
-//   //   int ip1;
-//   //   for(int j=0; j<jmt1GL-1; j++)
-//   //     {
-//   //     for(int i=0; i<imt1GL; i++)
-//   //       {
-//   //       if(i==imt1GL-1)
-//   //         {
-//   //         ip1 = 0;
-//   //       }
-//   //       else
-//   //         {
-//   //         ip1 = i + 1;
-//   //         }
-//   //       dzu(i,j,k) = min(min(min(dzt(i,j,k),
-//   //                                dzt(ip1,j,k)),
-//   //                            dzt(i,j+1,k)),
-//   //                        dzt(ip1,j+1,k));
-//   //       }
-//   //     }
-
-//   //   // assume top row is land
-//   //   for(int i=0; i<imt1GL; i++)
-//   //     {
-//   //     dzu(i,jmt1GL-1,k) = 0;
-//   //     }
-//   //   }
-// }
-
 class InternalMHTWorkArrays
 {
 // The default constructor and destructor should be sufficient.
@@ -144,7 +62,7 @@ public:
     this->WorkY1GL.Clear();
   }
   void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, int* ext3D1GL,
-               Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt1GL, Matrix1DFloat& dz);
+               Matrix2DFloat& tarea1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz);
 
   bool IsComputed()
   {
@@ -154,7 +72,7 @@ public:
 
 void InternalMHTWorkArrays::Compute(
   POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km, int* ext3D1GL,
-  Matrix2DFloat& tarea1GL, Matrix3DFloat& dzt1GL, Matrix1DFloat& dz)
+  Matrix2DFloat& tarea1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz)
 {
   Matrix3DFloat uet1GL(imt1GL, jmt1GL, km);
   Matrix3DFloat vnt1GL(imt1GL, jmt1GL, km);
@@ -172,6 +90,12 @@ void InternalMHTWorkArrays::Compute(
     this->WorkY1GL(i) = 0.0;
     }
 
+  PBCArrays pbcArrays;
+  if(popInfo.use_pbc)
+    {
+    pbcArrays.Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, global_kmt1GL, dz);
+    }
+
   // vertical integration of workX1GL and this->WorkY1GL
   for(int k=0; k < km; k++)
     {
@@ -181,8 +105,8 @@ void InternalMHTWorkArrays::Compute(
         {
         if(popInfo.use_pbc)
           {
-          workX1GL(i,j) += uet1GL(i,j,k)*tarea1GL(i,j)*dzt1GL(i,j,k)*4.186e-15;
-          this->WorkY1GL(i,j) += vnt1GL(i,j,k)*tarea1GL(i,j)*dzt1GL(i,j,k)*4.186e-15;
+          workX1GL(i,j) += uet1GL(i,j,k)*tarea1GL(i,j)*pbcArrays.DZT1GL(i,j,k)*4.186e-15;
+          this->WorkY1GL(i,j) += vnt1GL(i,j,k)*tarea1GL(i,j)*pbcArrays.DZT1GL(i,j,k)*4.186e-15;
           }
         else
           {
@@ -479,8 +403,7 @@ int vtkMHTReader::CalculateMHT(vtkRectilinearGrid* output, int* extMHT)
   // clear out temporary MHT work arrays since we don't know if they're
   // valid.
   this->MHTWorkArrays->Clear();
-  Matrix3DFloat dzt1GL;//(popInfo.global_imt, popInfo.global_jmt, popInfo.global_km); // acbauer still needs to read in dzt1GL which is used with partial bottom cells only
-  this->MHTWorkArrays->Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, tarea1GL, dzt1GL, dz);
+  this->MHTWorkArrays->Compute(popInfo, imt1GL, jmt1GL, km, ext3D1GL, tarea1GL, global_kmt1GL, dz);
 
   // dzu is for partial bottom cells
   Matrix3DFloat dzu1GL(imt1GL, jmt1GL, km);

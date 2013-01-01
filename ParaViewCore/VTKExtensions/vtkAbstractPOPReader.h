@@ -2,7 +2,7 @@
 
   Module:    vtkAbstractPOPReader.h
 
-=========================================================================*/
+  =========================================================================*/
 // .NAME vtkAbstractPOPReader - abstract reader for POP raw data
 // .SECTION Description
 // .SECTION Caveats
@@ -16,6 +16,7 @@
 
 #include "vtkRectilinearGridAlgorithm.h"
 #include "vtkMultiProcessStream.h"
+#include "vtkPOPMatrices.h"
 
 class vtkRectilinearGrid;
 class Matrix1DFloat;
@@ -30,9 +31,9 @@ class InternalMHTWorkArrays;
 // holds all configuration information for an MOC calculation
 class POPInputInformation {
 
-public:
+ public:
   POPInputInformation()
-  {
+    {
     this->global_imt = 320;
     this->global_jmt = 384;
     this->global_km = 40;
@@ -56,7 +57,7 @@ public:
     this->do_mht = false;
     this->use_pbc = false;
     this->byteswap = false;
-  }
+    }
 
   // store the internal variable values in data to be streamed
   // to other processes.
@@ -124,11 +125,9 @@ public:
   bool byteswap;               // byteswap the binary input files
 };
 
-
-
 class VTK_EXPORT vtkAbstractPOPReader : public vtkRectilinearGridAlgorithm
 {
-public:
+ public:
   vtkTypeMacro(vtkAbstractPOPReader, vtkRectilinearGridAlgorithm);
   void PrintSelf(ostream& os, vtkIndent indent);
 
@@ -152,7 +151,7 @@ public:
                                 int imt, int jmt, Matrix2DInt& data);
   static int LoadDataBlock3DFloat(POPInputInformation* popinfo, std::string filename, int* ext3D,
                                   int imt, int jmt, int km, Matrix3DFloat& data);
-protected:
+ protected:
   vtkAbstractPOPReader();
   ~vtkAbstractPOPReader();
 
@@ -220,13 +219,85 @@ protected:
   int GlobalIMT0;
   int GlobalJMT0;
 
-private:
+ private:
   vtkAbstractPOPReader(const vtkAbstractPOPReader&);          // not implemented
   void operator = (const vtkAbstractPOPReader&);   // not implemented
 
   // Description:
   // the namelist file containing all input variables
   char* FileName;
+};
+
+class PBCArrays
+{
+ public:
+  Matrix3DFloat DZU1GL; // needed for MOC
+  Matrix3DFloat DZT1GL; // needed for MHT and to compute DZU1GL
+
+  void Clear()
+  {
+    this->DZU1GL.Clear();
+    this->DZT1GL.Clear();
+  }
+  void Compute(POPInputInformation& popInfo, int imt1GL, int jmt1GL, int km,
+               int* ext3D1GL, Matrix2DInt& global_kmt1GL, Matrix1DFloat& dz)
+  {
+    // read in pbc file
+    Matrix2DDouble dzbc1GL(imt1GL, jmt1GL);
+    vtkAbstractPOPReader::LoadDataBlock2DDouble(&popInfo, popInfo.pbc_file,  ext3D1GL,
+                                                0, imt1GL, jmt1GL, dzbc1GL);
+    if(popInfo.byteswap)
+      {
+      dzbc1GL.ByteSwap();
+      }
+
+    this->DZU1GL.Allocate(imt1GL, jmt1GL, km);
+    this->DZT1GL.Allocate(imt1GL, jmt1GL, km);
+
+    for(int k=0; k<km; k++)
+      {
+      for(int j=0; j<jmt1GL; j++)
+        {
+        for(int i=0; i<imt1GL; i++)
+          {
+          if(global_kmt1GL(i,j) == k+1)
+            {
+            this->DZT1GL(i,j,k) = dzbc1GL(i,j);
+            }
+          else
+            {
+            this->DZT1GL(i,j,k) = dz(k);
+            }
+          }
+        }
+
+      // dzu = min of surrounding dzt's
+      int ip1;
+      for(int j=0; j<jmt1GL-1; j++)
+        {
+        for(int i=0; i<imt1GL; i++)
+          {
+          if(i==imt1GL-1)
+            {
+            ip1 = 2; // because of already existing ghost cells the wrap around is more
+            }
+          else
+            {
+            ip1 = i + 1;
+            }
+          this->DZU1GL(i,j,k) = std::min(
+            std::min(std::min(this->DZT1GL(i,j,k), this->DZT1GL(ip1,j,k)),
+                     this->DZT1GL(i,j+1,k)), this->DZT1GL(ip1,j+1,k));
+          }
+        }
+
+      // assume top row is land
+      for(int i=0; i<imt1GL; i++)
+        {
+        this->DZU1GL(i,jmt1GL-1,k) = 0;
+        }
+      }
+  }
 };
 
 #endif
