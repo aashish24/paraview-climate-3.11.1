@@ -72,4 +72,5 @@
   <Proxy group="sources" name="MPASReader" />
   <Proxy group="sources" name="UnstructuredPOPReader" />
   <Proxy group="sources" name="MOCReader"/>
+  <Proxy group="sources" name="MHTReader"/>
 </ParaViewReaders>

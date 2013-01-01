@@ -7333,7 +7333,7 @@
 
   <SourceProxy name="MOCReader" class="vtkMOCReader">
     <Documentation>
-      Reader for MOC output files.
+      Reader for POP raw data files that outputs the MOC computation.
     </Documentation>
 
     <StringVectorProperty name="FileName"
@@ -7343,7 +7343,23 @@
     </StringVectorProperty>
 
     <Hints>
-      <ReaderFactory extensions="moc" file_description="MOC file"/>
+      <ReaderFactory extensions="moc mht" file_description="MOC file"/>
+    </Hints>
+
+   </SourceProxy>
+
+   <SourceProxy name="MHTReader" class="vtkMHTReader">
+     <Documentation>
+       Reader for POP raw data files that outputs the MHT computation.
+     </Documentation>
+    <StringVectorProperty name="FileName"
+                          command="SetFileName"
+                          number_of_elements="1">
+      <FileListDomain name="files"/>
+    </StringVectorProperty>
+
+    <Hints>
+      <ReaderFactory extensions="moc mht" file_description="MHT file"/>
     </Hints>
 
    </SourceProxy>
