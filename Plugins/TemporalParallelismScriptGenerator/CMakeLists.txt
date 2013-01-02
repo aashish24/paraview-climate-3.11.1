@@ -1,3 +1,6 @@
+# Include other cmake fiels
+INCLUDE(wrap-python.cmake)
+
 #--------------------------------------------------
 # Find and Use ParaView
 #--------------------------------------------------
@@ -26,6 +29,7 @@ SET (TP_SOURCES
   pqTPActionsGroup.h
   pqTPExportStateWizard.cxx
   pqTPExportStateWizard.h
+  vtkTPTest.cxx
 )
 
 SET (TP_RESOURCES
@@ -92,4 +96,8 @@ ADD_PARAVIEW_PLUGIN(
   GUI_RESOURCE_FILES
     ${TP_RESOURCES}
 )
+
+if(VTK_WRAP_PYTHON)
+  wrap_python(TemporalParallelismPlugin "vtkTPTest.cxx")
+endif()
 

@@ -355,6 +355,14 @@ void vtkPVPythonInterpretor::ClearMessages()
 //-----------------------------------------------------------------------------
 void vtkPVPythonInterpretor::InitializeInternal()
 {
+/*
+Don't try to setup to run from build tree in uvcdat.
+uvcdat never runs that way, but the build tree libs are found and adding them
+causes runtime crash on mac due to duplicate libs.
+*/
+#define INCDAT 1
+
+#if !INCDAT
   // The following code will hack in the path for running VTK/Python
   // from the build tree. Do not try this at home. We are
   // professionals.
@@ -375,6 +383,7 @@ void vtkPVPythonInterpretor::InitializeInternal()
     vtkstd::string self_dir = vtksys::SystemTools::GetFilenamePath(exe_str);
     vtkPythonAppInitPrependPath(self_dir.c_str());
     }
+#endif
 
   if (this->CaptureStreams)
     {
