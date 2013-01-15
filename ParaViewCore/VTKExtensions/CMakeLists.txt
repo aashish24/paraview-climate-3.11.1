@@ -219,6 +219,7 @@ IF (VTK_USE_MPI)
     vtkAllToNRedistributeCompositePolyData.cxx
     vtkAllToNRedistributePolyData.cxx
     vtkBalancedRedistributePolyData.cxx
+    vtkMultiBlockTemporalStatistics.cxx
     vtkRedistributePolyData.cxx
     vtkWeightedRedistributePolyData.cxx
     )

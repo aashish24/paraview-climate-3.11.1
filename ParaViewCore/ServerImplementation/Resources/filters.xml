@@ -11024,6 +11024,76 @@ This property controls how the filter works to generate tensor cell data. You ca
      </ProxyProperty>
    <!-- End IntersectFragments -->
    </SourceProxy>
+   <SourceProxy name="MultiBlockTemporalStatistics"
+                class="vtkMultiBlockTemporalStatistics"
+                label="MultiBlock Temporal Statistics"
+                multiprocess_support="multiple_processes">
+     <Documentation
+         long_help="Computes temporal statistics using time compartments."
+         short_help="Computes temporal statistics using time compartments.">
+     </Documentation>
+     <InputProperty
+         name="Input"
+         command="SetInputConnection">
+       <ProxyGroupDomain name="groups">
+         <Group name="sources"/>
+         <Group name="filters"/>
+       </ProxyGroupDomain>
+       <DataTypeDomain name="input_type">
+         <DataType value="vtkDataSet"/>
+       </DataTypeDomain>
+     </InputProperty>
+     <IntVectorProperty
+         name="ComputeAverage"
+         command="SetComputeAverage"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the average.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="ComputeMinimum"
+         command="SetComputeMinimum"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the minimum.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="ComputeMaximum"
+         command="SetComputeMaximum"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the maximum.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="DoClimatology"
+         command="SetDoClimatology"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the maximum.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="TimeCompartmentSize"
+         command="SetTimeCompartmentSize"
+         number_of_elements="1"
+         default_values="1" >
+       <Documentation>
+         Set the amount of processes that will work together.
+       </Documentation>
+     </IntVectorProperty>
+   <!-- End MultiBlockTemporalStatistics -->
+   </SourceProxy>
 
   </ProxyGroup>
 </ServerManagerConfiguration>
