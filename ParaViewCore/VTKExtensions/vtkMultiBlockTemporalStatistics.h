@@ -60,8 +60,8 @@
 
 #include "vtkMultiBlockDataSetAlgorithm.h"
 #include "vtkSmartPointer.h" // for vtkDataSet
+#include <set>
 #include <string>
-#include <vector>
 
 class vtkDataSet;
 class vtkFieldData;
@@ -96,49 +96,49 @@ public:
   // JJA, SON. The outputted arrays for Month and Season are appended
   // to indicate the time that it is computed over (e.g. "_DJF" would be
   // appended if Season was specified for the Winter season or _").
-  enum TimeSpan
+  enum TimeSpanType
   {
-    Total = 0,
+    AllTimeSteps = 0,
     Month,
     Season,
-    Year
+    Year,
+    Decade
   };
+  vtkGetMacro(TimeSpan, int);
+  vtkSetClampMacro(TimeSpan, int, 0, 4);
 
   // Description:
   // The number of days in a year. See
   // http://cf-pcmdi.llnl.gov/documents/cf-conventions/1.0/cf-conventions.html#calendar
   // for details.
-  enum Calendar
-  {
-    Gregorian = 0,
-    ProlepticGregorian,
-    NoLeap,
-    AllLeap,
-    ThreeHundredSixty,
-    Julian
-  };
-
-  // Description:
-  // The day of the year the first time step corresponds to.
-  // Default value is 1 and possible values are between 1 and
-  // 366, inclusive.
-  int StartDate;
-
-  int StartYear;
-
-
-  // Description:
-  // The number of days between time steps.
-  int TimeLength;
-
-
+  /* enum CalendarType */
+  /* { */
+  /*   Gregorian = 0,         //!< also called standard, 365 day years except every 4th year unless divided by 100 and not by 400 */
+  /*   NoLeap,                //!< all 365 day years */
+  /*   AllLeap,               //!< all 366 day years */
+  /*   ThreeHundredSixty,     //!< all 366 day years with each month being 30 days long */
+  /*   Julian                 //!< 365 day years except every 4th year being a leap year with 366 days */
+  /* }; */
+  /* vtkGetMacro(Calendar, int); */
+  /* vtkSetClampMacro(Calendar, int, 0, 4); */
 
   // Description:
   // Whether to do average over subsets of the time steps.
   // By default his is false.
-  vtkSetMacro(DoClimatology, bool);
-  vtkGetMacro(DoClimatology, bool);
+  enum SamplingMethodType
+  {
+    Climatology = 0,
+    Consecutive,
+    OddEven //!< used for testing only -- needs to be removed
+  };
+  vtkGetMacro(SamplingMethod, int);
+  vtkSetClampMacro(SamplingMethod, int, 0, 2);
 
+  vtkGetMacro(TimeStepLength, int);
+  vtkSetClampMacro(TimeStepLength, int, 1, VTK_INT_MAX);
+
+  vtkGetMacro(TimeStepType, int);
+  vtkSetClampMacro(TimeStepType, int, 0, 1);
 
 
 
@@ -224,13 +224,16 @@ protected:
   virtual void AccumulateStatistics(vtkDataSet *input, vtkDataSet *output);
   virtual void AccumulateArrays(vtkFieldData *inFd, vtkFieldData *outFd);
 
-  virtual void PostExecute(vtkDataSet *input, vtkDataSet *output);
+  virtual void PostExecute(int numberOfTimeSteps, vtkDataSet *input, vtkDataSet *output);
 
-  virtual void FinishArrays(vtkFieldData *inFd, vtkFieldData *outFd);
+  virtual void FinishArrays(int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd);
 
-  void InitializeStatistics(vtkDataSet *input, vtkDataSet *output);
-  void InitializeArrays(vtkFieldData *inFd, vtkFieldData *outFd);
-  void InitializeArray(vtkDataArray *array, vtkFieldData *outFd);
+  void InitializeStatistics(int numberOfTimeSteps, vtkDataSet *input,
+                            vtkDataSet *output);
+  void InitializeArrays(int numberOfTimeSteps, vtkFieldData *inFd,
+                        vtkFieldData *outFd);
+  void InitializeArray(int numberOfTimeSteps, vtkDataArray *array,
+                       vtkFieldData *outFd);
 
   // Description:
   // This gets an array with a given statistics suffix. It uses CurrentTimeStep
@@ -248,8 +251,15 @@ protected:
   // over a repeating time frame such as each month), this returns
   // the suffice to add to the output array to specify which time
   // frame is being computed (e.g. FEB for February).
-  virtual const char* GetClimatologicalSuffix();
-  virtual void GetAllClimatologicalSuffixes(std::vector<std::string>& climatologicalSuffixes);
+  virtual std::string GetClimatologicalSuffix();
+  virtual std::string GetClimatologicalSuffix(int timeIndex);
+  virtual void GetAllClimatologicalSuffixes(int numberOfTimeSteps,
+                                            std::set<std::string>& climatologicalSuffixes);
+
+  // Description:
+  // Given a time index, return the month (0-11), year, and whether
+  // or not it is a leap year.
+  void GetDateFromTimeIndex(int timeIndex, int& month, int& year, bool& isLeapYear);
 
 private:
   vtkMultiBlockTemporalStatistics(const vtkMultiBlockTemporalStatistics &); // Not implemented.
@@ -261,7 +271,25 @@ private:
   // Used to temporarily store the statistical data.
   vtkSmartPointer<vtkDataSet> Grid;
 
-  bool DoClimatology;
+  int TimeSpan;
+  //int Calendar;
+  int SamplingMethod;
+
+  // Description:
+  // The day of the year the first time step corresponds to.
+  // Default value is 0 and possible values are between 0 and
+  // 365, inclusive.
+  int StartDate;
+
+  int StartYear;
+
+  // Description:
+  // The number of days, months, etc. between time steps.
+  int TimeStepLength;
+
+  // Description:
+  // Default is day (0) but can be month (1) also.
+  int TimeStepType;
 };
 
 #endif //_vtkMultiBlockTemporalStatistics_h

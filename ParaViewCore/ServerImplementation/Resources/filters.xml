@@ -11024,6 +11024,8 @@ This property controls how the filter works to generate tensor cell data. You ca
      </ProxyProperty>
    <!-- End IntersectFragments -->
    </SourceProxy>
+
+   <!-- ==================================================================== -->
    <SourceProxy name="MultiBlockTemporalStatistics"
                 class="vtkMultiBlockTemporalStatistics"
                 label="MultiBlock Temporal Statistics"
@@ -11063,24 +11065,38 @@ This property controls how the filter works to generate tensor cell data. You ca
          Compute the minimum.
        </Documentation>
      </IntVectorProperty>
+
      <IntVectorProperty
-         name="ComputeMaximum"
-         command="SetComputeMaximum"
+         name="TimeSpan"
+         label="Time Span"
+         command="SetTimeSpan"
          number_of_elements="1"
-         default_values="1" >
-       <BooleanDomain name="bool"/>
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="AllTimeSteps"/>
+         <Entry value="1" text="Month"/>
+         <Entry value="2" text="Season"/>
+         <Entry value="3" text="Year"/>
+         <Entry value="4" text="Decade"/>
+       </EnumerationDomain>
        <Documentation>
-         Compute the maximum.
+         Specify what span of time to average together.
        </Documentation>
      </IntVectorProperty>
+
      <IntVectorProperty
-         name="DoClimatology"
-         command="SetDoClimatology"
+         name="SamplingMethod"
+         label="Sampling Method"
+         command="SetSamplingMethod"
          number_of_elements="1"
-         default_values="1" >
-       <BooleanDomain name="bool"/>
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="Climatology"/>
+         <Entry value="1" text="Consecutive"/>
+         <Entry value="2" text="OddEven"/>
+       </EnumerationDomain>
        <Documentation>
-         Compute the maximum.
+         Specify how to group the statistics. Climatology means that all of a type are grouped together (e.g. all Februaries), Consecutive means a specific time period (e.g. February 2012). OddEven is meant for testing.
        </Documentation>
      </IntVectorProperty>
      <IntVectorProperty
@@ -11090,6 +11106,30 @@ This property controls how the filter works to generate tensor cell data. You ca
          default_values="1" >
        <Documentation>
          Set the amount of processes that will work together.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="TimeStepLength"
+         command="SetTimeStepLength"
+         number_of_elements="1"
+         default_values="1" >
+       <Documentation>
+         The number of days or months in a time step.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="TimeStepType"
+         command="SetTimeStepType"
+         number_of_elements="1"
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="Days"/>
+         <Entry value="1" text="Months"/>
+       </EnumerationDomain>
+       <Documentation>
+         Whether the time step is in days (0) or months (1).
        </Documentation>
      </IntVectorProperty>
    <!-- End MultiBlockTemporalStatistics -->

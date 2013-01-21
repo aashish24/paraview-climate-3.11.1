@@ -41,14 +41,19 @@
 #include "vtkStdString.h"
 #include "vtkStreamingDemandDrivenPipeline.h"
 
+#include <sstream>
+
 #include "vtkMPI.h"
 
 vtkInformationKeyMacro(vtkMultiBlockTemporalStatistics,MPI_SUBCOMMUNICATOR,ObjectBase);
 
 namespace
 {
-  // int MonthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  // int LeapYearMonthLengths[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int MonthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int LeapYearMonthLengths[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  const char* MonthSuffixes[] = {"_JAN", "_FEB", "_MAR", "_APR", "_MAY", "_JUN", "_JUL",
+                                 "_AUG", "_SEP", "_OCT", "_NOV", "_DEC"};
+  const char* SeasonSuffixes[] = {"_DJF", "_MAM", "_JJA", "_SON"};
 }
 
 //=============================================================================
@@ -257,10 +262,12 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->ComputeMaximum = 1;
   this->ComputeStandardDeviation = 1;
   this->TimeCompartmentSize = 0;
+  this->TimeSpan = 0;
+  this->SamplingMethod = 0;
   this->StartDate = 0;
   this->StartYear = 0;
-  this->TimeLength = 1;
-  this->DoClimatology = false;
+  this->TimeStepLength = 1;
+  this->TimeStepType = 0;
   this->Internal = new vtkMultiBlockTemporalStatisticsInternal;
 
   this->Internal->GlobalController = vtkMultiProcessController::GetGlobalController();
@@ -271,6 +278,7 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->SetTimeCompartmentSize(numberOfProcesses);
 }
 
+//-----------------------------------------------------------------------------
 vtkMultiBlockTemporalStatistics::~vtkMultiBlockTemporalStatistics()
 {
   if(this->Internal)
@@ -280,6 +288,7 @@ vtkMultiBlockTemporalStatistics::~vtkMultiBlockTemporalStatistics()
     }
 }
 
+//-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::PrintSelf(ostream &os, vtkIndent indent)
 {
   this->Superclass::PrintSelf(os, indent);
@@ -456,6 +465,8 @@ int vtkMultiBlockTemporalStatistics::RequestData(
   vtkDataSet *input = vtkDataSet::GetData(inInfo);
   vtkMultiBlockDataSet* output = vtkMultiBlockDataSet::GetData(outInfo);
   int numberOfProcesses = this->Internal->GlobalController->GetNumberOfProcesses();
+  int numberOfTimeSteps =
+    inInfo->Length(vtkStreamingDemandDrivenPipeline::TIME_STEPS());
 
   if (this->CurrentTimeIndex == this->GetTimeCompartmentIndex())
     {
@@ -495,7 +506,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
         temp->Delete();
         }
       }
-    this->InitializeStatistics(input, this->Grid);
+    this->InitializeStatistics(numberOfTimeSteps, input, this->Grid);
     }
   if(this->CurrentTimeIndex <
      inInfo->Length(vtkStreamingDemandDrivenPipeline::TIME_STEPS()))
@@ -506,8 +517,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
 
   this->CurrentTimeIndex += this->GetNumberOfTimeCompartments();
 
-  if (  this->CurrentTimeIndex
-        < inInfo->Length(vtkStreamingDemandDrivenPipeline::TIME_STEPS()))
+  if (  this->CurrentTimeIndex < numberOfTimeSteps)
     {
     // There is still more to do.
     request->Set(vtkStreamingDemandDrivenPipeline::CONTINUE_EXECUTING(), 1);
@@ -526,7 +536,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       numberOfLocalTimeSteps++;
       }
 
-    this->PostExecute(input, this->Grid);
+    this->PostExecute(numberOfTimeSteps, input, this->Grid);
     request->Remove(vtkStreamingDemandDrivenPipeline::CONTINUE_EXECUTING());
     // reset back to this processes first time step
     this->CurrentTimeIndex = this->GetTimeCompartmentIndex();
@@ -622,16 +632,16 @@ void vtkMultiBlockTemporalStatistics::AccumulateArrays(
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::PostExecute(
-  vtkDataSet *input, vtkDataSet *output)
+  int numberOfTimeSteps, vtkDataSet *input, vtkDataSet *output)
 {
-  this->FinishArrays(input->GetFieldData(), output->GetFieldData());
-  this->FinishArrays(input->GetPointData(), output->GetPointData());
-  this->FinishArrays(input->GetCellData(), output->GetCellData());
+  this->FinishArrays(numberOfTimeSteps, input->GetFieldData(), output->GetFieldData());
+  this->FinishArrays(numberOfTimeSteps, input->GetPointData(), output->GetPointData());
+  this->FinishArrays(numberOfTimeSteps, input->GetCellData(), output->GetCellData());
 }
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::FinishArrays(
-  vtkFieldData *inFd, vtkFieldData *outFd)
+  int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd)
 {
   int numArrays = inFd->GetNumberOfArrays();
   if(numArrays == 0)
@@ -662,9 +672,10 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
       }
     }
 
-  std::vector<std::string> climatologicalSuffixes;
-  this->GetAllClimatologicalSuffixes(climatologicalSuffixes);
-  for(size_t c=0;c<climatologicalSuffixes.size();c++)
+  std::set<std::string> climatologicalSuffixes;
+  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
+  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
+      it!=climatologicalSuffixes.end();it++)
     {
     for (int i = 0; i < numArrays; i++)
       {
@@ -677,7 +688,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
       if(mySubController)
         { // only need to do min/max if there's a subcontroller
         // minimum.
-        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MINIMUM_SUFFIX, climatologicalSuffixes[c].c_str()))
+        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MINIMUM_SUFFIX, it->c_str()))
           {
           vtkDataArray* tempArray = outArray->NewInstance();
           tempArray->DeepCopy(outArray);
@@ -685,7 +696,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
           tempArray->Delete();
           }
         // maximum.
-        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MAXIMUM_SUFFIX, climatologicalSuffixes[c].c_str()))
+        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MAXIMUM_SUFFIX, it->c_str()))
           {
           vtkDataArray* tempArray = outArray->NewInstance();
           tempArray->DeepCopy(outArray);
@@ -694,7 +705,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
           }
         }
 
-      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX, climatologicalSuffixes[c].c_str()))
+      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX, it->c_str()))
         {
         // first compute this process's average.  every process already
         // knows enough to finish its local std dev computation
@@ -714,7 +725,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
             diffAverageArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
             diffAverageArray->SetNumberOfTuples(outArray->GetNumberOfTuples());
             vtkSmartPointer<vtkDataArray> remoteStdDevArray;
-            if(this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX), climatologicalSuffixes[c].c_str())
+            if(this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX), it->c_str())
               {
               remoteStdDevArray.TakeReference(outArray->NewInstance());
               remoteStdDevArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
@@ -748,7 +759,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
                                      remoteSampleSize, remoteSampleSize+currentSampleSize));
                   }
                 // update the current global standard deviation
-                if(vtkDataArray* tempArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, climatologicalSuffixes[c].c_str()))
+                if(vtkDataArray* tempArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
                   {
                   mySubController->Receive(remoteStdDevArray, j, j+8234);
                   switch (inArray->GetDataType())
@@ -767,7 +778,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
               } // iterating over process that need to send to their master proc
             diffAverageArray->Delete();
             // finish the standard deviation computation
-            if(vtkDataArray* stdOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, climatologicalSuffixes[c].c_str()))
+            if(vtkDataArray* stdOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
               {
               switch (inArray->GetDataType())
                 {
@@ -785,7 +796,7 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
             if(temp > 0)
               {
               mySubController->Send(outArray, 0, mySubController->GetLocalProcessId()+4234);
-              if(vtkDataArray* sendOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, climatologicalSuffixes[c].c_str()))
+              if(vtkDataArray* sendOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
                 {
                 mySubController->Send(sendOutArray, 0, mySubController->GetLocalProcessId()+8234);
                 }
@@ -797,15 +808,15 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
           // no contributions from other processes. the only statistical quantity that still
           // needs processing is the standard deviation because we still need to divide by
           // the sample size and then take the square root
-          if(vtkDataArray* tempOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, climatologicalSuffixes[c].c_str()))
+          if(vtkDataArray* tempOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
             {
-            double numberOfTimeSteps = tempOutArray->GetComponent(tempOutArray->GetNumberOfTuples()-1, 0);
+            double numStepsDouble = tempOutArray->GetComponent(tempOutArray->GetNumberOfTuples()-1, 0);
             switch (inArray->GetDataType())
               {
               vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishGlobalStdDev(
                                  static_cast<VTK_TT*>(tempOutArray->GetVoidPointer(0)),
                                  inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
-                                 numberOfTimeSteps));
+                                 numStepsDouble));
               }
             }
           }
@@ -814,7 +825,8 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
     } // iterating over climatological suffixes
 
   // now we go through and set the number of tuples for the output arrays to the proper length
-  for(size_t c=0;c<climatologicalSuffixes.size();c++)
+  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
+      it!=climatologicalSuffixes.end();it++)
     {
     for (int i = 0; i < numArrays; i++)
       {
@@ -824,22 +836,22 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
         continue;
         }
       if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX,
-                                                 climatologicalSuffixes[c].c_str()))
+                                                 it->c_str()))
         {
         outArray->SetNumberOfTuples(inArray->GetNumberOfTuples());
         }
       if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MINIMUM_SUFFIX,
-                                                 climatologicalSuffixes[c].c_str()))
+                                                 it->c_str()))
         {
         outArray->SetNumberOfTuples(inArray->GetNumberOfTuples());
         }
       if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MAXIMUM_SUFFIX,
-                                                 climatologicalSuffixes[c].c_str()))
+                                                 it->c_str()))
         {
         outArray->SetNumberOfTuples(inArray->GetNumberOfTuples());
         }
       if(vtkDataArray* outArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX,
-                                                 climatologicalSuffixes[c].c_str()))
+                                                 it->c_str()))
         {
         outArray->SetNumberOfTuples(inArray->GetNumberOfTuples());
         }
@@ -853,7 +865,7 @@ vtkDataArray *vtkMultiBlockTemporalStatistics::GetArray(
   vtkFieldData* fieldData, vtkDataArray *inArray, const char *statisticsSuffix)
 {
   vtkStdString outArrayName = vtkMultiBlockTemporalStatisticsMangleName(
-    inArray->GetName(), statisticsSuffix, this->GetClimatologicalSuffix());
+    inArray->GetName(), statisticsSuffix, this->GetClimatologicalSuffix().c_str());
   vtkDataArray *outArray = fieldData->GetArray(outArrayName.c_str());
   if (!outArray)
     {
@@ -901,49 +913,165 @@ vtkDataArray *vtkMultiBlockTemporalStatistics::GetArray(
 
   return outArray;
 }
+
 //-----------------------------------------------------------------------------
-const char* vtkMultiBlockTemporalStatistics::GetClimatologicalSuffix()
+void vtkMultiBlockTemporalStatistics::GetDateFromTimeIndex(
+  int timeIndex, int& month, int& year, bool& isLeapYear)
 {
-  if(this->DoClimatology == false)
+  if(this->TimeStepType == 0) // daily time steps
+    {
+    int numberOfDays = timeIndex*TimeStepLength;
+    year = this->StartYear;
+    while(1)
+      {
+      if(year % 4 != 0 || (year % 100 == 0 && year % 400 != 0))
+        {
+        if(numberOfDays < 365)
+          {
+          isLeapYear = false;
+          break;
+          }
+        year++;
+        numberOfDays -= 365;
+        }
+      else // a leap year
+        {
+        if(numberOfDays < 366)
+          {
+          isLeapYear = true;
+          break;
+          }
+        year++;
+        numberOfDays -= 366;
+        }
+      }
+
+    int* months = (isLeapYear == true ? LeapYearMonthLengths : MonthLengths);
+    int sum = months[0];
+    month = 0;
+    while(numberOfDays >= sum)
+      {
+      month++;
+      sum += months[month];
+      }
+    }
+  else if(this->TimeStepType == 1) // monthly time steps
+    {
+    int numberOfMonths = timeIndex*TimeStepLength;
+    year = this->StartYear;
+    while(1)
+      {
+      if(numberOfMonths >= 12)
+        {
+        numberOfMonths += 12;
+        year++;
+        }
+      else
+        {
+        isLeapYear = !(year % 4 != 0 || (year % 100 == 0 && year % 400 != 0));
+        month = numberOfMonths;
+        break;
+        }
+      }
+    }
+
+  return;
+}
+
+//-----------------------------------------------------------------------------
+std::string vtkMultiBlockTemporalStatistics::GetClimatologicalSuffix()
+{
+  return this->GetClimatologicalSuffix(this->CurrentTimeIndex);
+}
+
+//-----------------------------------------------------------------------------
+std::string vtkMultiBlockTemporalStatistics::GetClimatologicalSuffix(
+  int timeIndex)
+{
+  if(this->TimeSpan == AllTimeSteps)
     {
     return "";
     }
-  if(this->CurrentTimeIndex % 2 == 0)
+  if(this->SamplingMethod == OddEven)
     {
-    return "_EVENDAY";
+    if(timeIndex % 2 == 0)
+      {
+      return "_EVEN";
+      }
+    return "_ODD";
     }
-  return "_ODDDAY";
+  int month, year;
+  bool isLeapYear;
+  this->GetDateFromTimeIndex(timeIndex, month, year, isLeapYear);
+  if(this->SamplingMethod == Climatology)
+    {
+    if(this->TimeSpan == Month)
+      {
+      return MonthSuffixes[month];
+      }
+    if(this->TimeSpan == Season)
+      {
+      return SeasonSuffixes[month/4];
+      }
+    vtkWarningMacro("TimeSpan must be either Month or Season for Climatology Sampling Method.");
+    }
+  else if(this->SamplingMethod == Consecutive)
+    {
+    if(this->TimeSpan == Month)
+      {
+      std::stringstream suffix;
+      suffix << MonthSuffixes[month] << month+year*12;
+      return suffix.str();
+      }
+    else if(this->TimeSpan == Year)
+      {
+      std::stringstream suffix;
+      suffix << "Year" << year;
+      return suffix.str();
+      }
+    else if(this->TimeSpan == Decade)
+      {
+      std::stringstream suffix;
+      suffix << "Decade" << year/10;
+      return suffix.str();
+      }
+    }
+
+  vtkWarningMacro("Not able to handle the current settings");
+  return "";
 }
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::GetAllClimatologicalSuffixes(
-  std::vector<std::string>& climatologicalSuffixes)
+  int numberOfTimeSteps, std::set<std::string>& climatologicalSuffixes)
 {
   climatologicalSuffixes.clear();
-  if(this->DoClimatology == false)
+  if(numberOfTimeSteps == 0 || this->TimeSpan == AllTimeSteps)
     {
-    climatologicalSuffixes.push_back("");
+    climatologicalSuffixes.insert("");
     }
-  else
+  for(int i=0;i<numberOfTimeSteps;i++)
     {
-    climatologicalSuffixes.push_back("_EVENDAY");
-    climatologicalSuffixes.push_back("_ODDDAY");
+    climatologicalSuffixes.insert(this->GetClimatologicalSuffix(i));
     }
 }
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::InitializeStatistics(
-  vtkDataSet *input, vtkDataSet *output)
+  int numberOfTimeSteps, vtkDataSet *input, vtkDataSet *output)
 {
   output->CopyStructure(input);
-  this->InitializeArrays(input->GetFieldData(), output->GetFieldData());
-  this->InitializeArrays(input->GetPointData(), output->GetPointData());
-  this->InitializeArrays(input->GetCellData(), output->GetCellData());
+  this->InitializeArrays(numberOfTimeSteps, input->GetFieldData(),
+                         output->GetFieldData());
+  this->InitializeArrays(numberOfTimeSteps, input->GetPointData(),
+                         output->GetPointData());
+  this->InitializeArrays(numberOfTimeSteps, input->GetCellData(),
+                         output->GetCellData());
 }
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::InitializeArrays(
-  vtkFieldData *inFd, vtkFieldData *outFd)
+  int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd)
 {
   // Because we need to do mathematical operations, we require all arrays we
   // process to be numeric data (i.e. a vtkDataArray).  We also handle global
@@ -983,19 +1111,19 @@ void vtkMultiBlockTemporalStatistics::InitializeArrays(
       continue;    // Must be Ids.
       }
 
-    this->InitializeArray(array, outFd);
+    this->InitializeArray(numberOfTimeSteps, array, outFd);
     }
 }
 
 
 //-----------------------------------------------------------------------------
 void vtkMultiBlockTemporalStatistics::InitializeArray(
-  vtkDataArray *array, vtkFieldData *outFd)
+  int numberOfTimeSteps, vtkDataArray *array, vtkFieldData *outFd)
 {
-  std::vector<std::string> climatologicalSuffixes;
-  this->GetAllClimatologicalSuffixes(climatologicalSuffixes);
+  std::set<std::string> climatologicalSuffixes;
+  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
 
-  for(std::vector<std::string>::iterator it=climatologicalSuffixes.begin();
+  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
       it!=climatologicalSuffixes.end();it++)
     {
     if (this->ComputeAverage)
