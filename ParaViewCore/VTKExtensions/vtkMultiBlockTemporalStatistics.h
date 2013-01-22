@@ -66,7 +66,7 @@
 class vtkDataSet;
 class vtkFieldData;
 class vtkInformationObjectBaseKey;
-class vtkMPIController;
+class vtkMultiProcessController;
 class vtkMultiBlockTemporalStatisticsInternal;
 
 class VTK_GRAPHICS_EXPORT vtkMultiBlockTemporalStatistics : public vtkMultiBlockDataSetAlgorithm
@@ -75,11 +75,6 @@ public:
   vtkTypeMacro(vtkMultiBlockTemporalStatistics, vtkMultiBlockDataSetAlgorithm);
   static vtkMultiBlockTemporalStatistics *New();
   virtual void PrintSelf(ostream &os, vtkIndent indent);
-
-
-
-
-
 
   // Description:
   // The averages that we do may be over subsets of times. For example, we
@@ -140,10 +135,6 @@ public:
   vtkGetMacro(TimeStepType, int);
   vtkSetClampMacro(TimeStepType, int, 0, 1);
 
-
-
-
-
   // Description:
   // Turn on/off the computation of the average values over time.  On by
   // default.  The resulting array names have "_average" appended to them.
@@ -190,10 +181,7 @@ public:
 
   // Description:
   // Each time compartment group has their own MPI subcontroller.
-#ifdef PARAVIEW_USE_MPI
-  vtkMPIController* GetTimeCompartmentController();
-#endif
-  int GetTimeCompartmentControllerLocalProcessId();
+  vtkMultiProcessController* GetTimeCompartmentController();
 
   static vtkInformationObjectBaseKey* MPI_SUBCOMMUNICATOR();
 

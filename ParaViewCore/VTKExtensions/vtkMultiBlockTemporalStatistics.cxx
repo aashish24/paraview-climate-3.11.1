@@ -64,9 +64,7 @@ vtkStandardNewMacro(vtkMultiBlockTemporalStatistics);
 class vtkMultiBlockTemporalStatisticsInternal
 {
 public:
-#ifdef PARAVIEW_USE_MPI
-  vtkSmartPointer<vtkMPIController> SubController;
-#endif
+  vtkSmartPointer<vtkMultiProcessController> SubController;
   vtkSmartPointer<vtkMultiProcessController> GlobalController;
 };
 //=============================================================================
@@ -272,6 +270,7 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->StartYear = 0;
   this->TimeStepLength = 1;
   this->TimeStepType = 0;
+  this->CurrentTimeIndex = 0;
   this->Internal = new vtkMultiBlockTemporalStatisticsInternal;
 
   this->Internal->GlobalController = vtkMultiProcessController::GetGlobalController();
@@ -308,6 +307,10 @@ void vtkMultiBlockTemporalStatistics::SetTimeCompartmentSize(int size)
 {
   if(size == this->TimeCompartmentSize)
     {
+    if(this->Internal->SubController == NULL)
+      {
+      this->Internal->SubController = this->Internal->GlobalController;
+      }
     return;
     }
   int numberOfProcesses = 1;
@@ -325,7 +328,7 @@ void vtkMultiBlockTemporalStatistics::SetTimeCompartmentSize(int size)
 #ifdef PARAVIEW_USE_MPI
   if(this->TimeCompartmentSize == numberOfProcesses)
     { // just use the default controller
-    this->Internal->SubController = vtkMPIController::SafeDownCast(this->Internal->GlobalController);
+    this->Internal->SubController = this->Internal->GlobalController;
     this->Modified();
     this->CurrentTimeIndex = this->GetTimeCompartmentIndex();
     return;
@@ -364,22 +367,10 @@ int vtkMultiBlockTemporalStatistics::GetNumberOfTimeCompartments()
   return size;
 }
 
-#ifdef PARAVIEW_USE_MPI
 //-----------------------------------------------------------------------------
-vtkMPIController* vtkMultiBlockTemporalStatistics::GetTimeCompartmentController()
+vtkMultiProcessController* vtkMultiBlockTemporalStatistics::GetTimeCompartmentController()
 {
   return this->Internal->SubController;
-}
-#endif
-
-//-----------------------------------------------------------------------------
-int vtkMultiBlockTemporalStatistics::GetTimeCompartmentControllerLocalProcessId()
-{
-#ifdef PARAVIEW_USE_MPI
-  return this->Internal->SubController->GetLocalProcessId();
-#else
-  return 0;
-#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -404,14 +395,12 @@ int vtkMultiBlockTemporalStatistics::RequestInformation(
   outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_STEPS());
   outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_RANGE());
 
-#ifdef PARAVIEW_USE_MPI
-  if(vtkMPIController* subController = this->GetTimeCompartmentController())
+  if(vtkMultiProcessController* subController = this->GetTimeCompartmentController())
     {
     vtkInformation *inInfo = inputVector[0]->GetInformationObject(0);
     inInfo->Set(this->MPI_SUBCOMMUNICATOR(), subController);
     outInfo->Set(this->MPI_SUBCOMMUNICATOR(), subController);
     }
-#endif
 
   return 1;
 }
@@ -444,12 +433,12 @@ int vtkMultiBlockTemporalStatistics::RequestUpdateExtent(
       }
     }
   int piece = 0;
-#ifdef PARAVIEW_USE_MPI
-  if(vtkMPIController* subController = this->GetTimeCompartmentController())
+//#ifdef PARAVIEW_USE_MPI
+  if(vtkMultiProcessController* subController = this->GetTimeCompartmentController())
     {
     piece = subController->GetLocalProcessId();
     }
-#endif
+//#endif
   // the parts below are probably not correct for every situation.  i probably
   // should check for a 3d whole extent for structured grids and may need
   // some dustup for unstructured grids.
@@ -498,7 +487,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       this->Grid.TakeReference(input->NewInstance());
       if(this->GetTimeCompartmentIndex() == 0)
         {
-        output->SetBlock(this->GetTimeCompartmentControllerLocalProcessId(), this->Grid);
+        output->SetBlock(this->GetTimeCompartmentController()->GetLocalProcessId(), this->Grid);
         }
       else
         {
@@ -517,7 +506,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       this->Grid.TakeReference(input->NewInstance());
       if(this->GetTimeCompartmentIndex() == 0)
         {
-        multiPiece->SetPiece(this->GetTimeCompartmentControllerLocalProcessId(), this->Grid);
+        multiPiece->SetPiece(this->GetTimeCompartmentController()->GetLocalProcessId(), this->Grid);
         }
       else
         { // controller should not be null here
@@ -528,8 +517,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       }
     this->InitializeStatistics(numberOfTimeSteps, input, this->Grid);
     }
-  if(this->CurrentTimeIndex <
-     inInfo->Length(vtkStreamingDemandDrivenPipeline::TIME_STEPS()))
+  if(this->CurrentTimeIndex < numberOfTimeSteps || numberOfTimeSteps == 0)
     {
     // Accumulate new data if this is a valid time step.
     this->AccumulateStatistics(input, this->Grid);
