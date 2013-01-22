@@ -190,7 +190,10 @@ public:
 
   // Description:
   // Each time compartment group has their own MPI subcontroller.
+#ifdef PARAVIEW_USE_MPI
   vtkMPIController* GetTimeCompartmentController();
+#endif
+  int GetTimeCompartmentControllerLocalProcessId();
 
   static vtkInformationObjectBaseKey* MPI_SUBCOMMUNICATOR();
 
@@ -227,6 +230,10 @@ protected:
   virtual void PostExecute(int numberOfTimeSteps, vtkDataSet *input, vtkDataSet *output);
 
   virtual void FinishArrays(int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd);
+  virtual void FinishArraysSerial(int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd);
+#ifdef PARAVIEW_USE_MPI
+  virtual void FinishArraysParallel(int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd);
+#endif
 
   void InitializeStatistics(int numberOfTimeSteps, vtkDataSet *input,
                             vtkDataSet *output);

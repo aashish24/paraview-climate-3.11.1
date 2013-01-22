@@ -31,7 +31,11 @@
 #include "vtkInformation.h"
 #include "vtkInformationObjectBaseKey.h"
 #include "vtkInformationVector.h"
+#ifdef PARAVIEW_USE_MPI
 #include "vtkMPIController.h"
+#else
+#include "vtkMultiProcessController.h"
+#endif
 #include "vtkMultiBlockDataSet.h"
 #include "vtkMultiPieceDataSet.h"
 #include "vtkNew.h"
@@ -42,8 +46,6 @@
 #include "vtkStreamingDemandDrivenPipeline.h"
 
 #include <sstream>
-
-#include "vtkMPI.h"
 
 vtkInformationKeyMacro(vtkMultiBlockTemporalStatistics,MPI_SUBCOMMUNICATOR,ObjectBase);
 
@@ -62,7 +64,9 @@ vtkStandardNewMacro(vtkMultiBlockTemporalStatistics);
 class vtkMultiBlockTemporalStatisticsInternal
 {
 public:
+#ifdef PARAVIEW_USE_MPI
   vtkSmartPointer<vtkMPIController> SubController;
+#endif
   vtkSmartPointer<vtkMultiProcessController> GlobalController;
 };
 //=============================================================================
@@ -273,7 +277,6 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->Internal->GlobalController = vtkMultiProcessController::GetGlobalController();
   int numberOfProcesses = this->Internal->GlobalController->GetNumberOfProcesses();
 
-
   // below set CurrentTimeIndex as well
   this->SetTimeCompartmentSize(numberOfProcesses);
 }
@@ -319,6 +322,7 @@ void vtkMultiBlockTemporalStatistics::SetTimeCompartmentSize(int size)
     return;
     }
   this->TimeCompartmentSize = size;
+#ifdef PARAVIEW_USE_MPI
   if(this->TimeCompartmentSize == numberOfProcesses)
     { // just use the default controller
     this->Internal->SubController = vtkMPIController::SafeDownCast(this->Internal->GlobalController);
@@ -339,6 +343,7 @@ void vtkMultiBlockTemporalStatistics::SetTimeCompartmentSize(int size)
 
   this->CurrentTimeIndex = this->GetTimeCompartmentIndex();
   this->Modified();
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -359,10 +364,22 @@ int vtkMultiBlockTemporalStatistics::GetNumberOfTimeCompartments()
   return size;
 }
 
+#ifdef PARAVIEW_USE_MPI
 //-----------------------------------------------------------------------------
 vtkMPIController* vtkMultiBlockTemporalStatistics::GetTimeCompartmentController()
 {
   return this->Internal->SubController;
+}
+#endif
+
+//-----------------------------------------------------------------------------
+int vtkMultiBlockTemporalStatistics::GetTimeCompartmentControllerLocalProcessId()
+{
+#ifdef PARAVIEW_USE_MPI
+  return this->Internal->SubController->GetLocalProcessId();
+#else
+  return 0;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -380,8 +397,6 @@ int vtkMultiBlockTemporalStatistics::RequestInformation(
   vtkInformationVector **inputVector,
   vtkInformationVector *outputVector)
 {
-  vtkInformation *inInfo = inputVector[0]->GetInformationObject(0);
-
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
 
   // The output data of this filter has no time assoicated with it.  It is the
@@ -389,11 +404,14 @@ int vtkMultiBlockTemporalStatistics::RequestInformation(
   outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_STEPS());
   outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_RANGE());
 
+#ifdef PARAVIEW_USE_MPI
   if(vtkMPIController* subController = this->GetTimeCompartmentController())
     {
+    vtkInformation *inInfo = inputVector[0]->GetInformationObject(0);
     inInfo->Set(this->MPI_SUBCOMMUNICATOR(), subController);
     outInfo->Set(this->MPI_SUBCOMMUNICATOR(), subController);
     }
+#endif
 
   return 1;
 }
@@ -426,10 +444,12 @@ int vtkMultiBlockTemporalStatistics::RequestUpdateExtent(
       }
     }
   int piece = 0;
+#ifdef PARAVIEW_USE_MPI
   if(vtkMPIController* subController = this->GetTimeCompartmentController())
     {
     piece = subController->GetLocalProcessId();
     }
+#endif
   // the parts below are probably not correct for every situation.  i probably
   // should check for a 3d whole extent for structured grids and may need
   // some dustup for unstructured grids.
@@ -478,7 +498,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       this->Grid.TakeReference(input->NewInstance());
       if(this->GetTimeCompartmentIndex() == 0)
         {
-        output->SetBlock(this->GetTimeCompartmentController()->GetLocalProcessId(), this->Grid);
+        output->SetBlock(this->GetTimeCompartmentControllerLocalProcessId(), this->Grid);
         }
       else
         {
@@ -497,7 +517,7 @@ int vtkMultiBlockTemporalStatistics::RequestData(
       this->Grid.TakeReference(input->NewInstance());
       if(this->GetTimeCompartmentIndex() == 0)
         {
-        multiPiece->SetPiece(this->GetTimeCompartmentController()->GetLocalProcessId(), this->Grid);
+        multiPiece->SetPiece(this->GetTimeCompartmentControllerLocalProcessId(), this->Grid);
         }
       else
         { // controller should not be null here
@@ -653,178 +673,21 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
   // this->Internal->SubController and only exists if it is different
   // than the global controller.
   int numberOfTimeCompartments = this->GetNumberOfTimeCompartments();
-  vtkSmartPointer<vtkMPIController> mySubController;
 
-  if(this->Internal->GlobalController)
+  if(numberOfTimeCompartments == 1)
     {
-    if(numberOfTimeCompartments > 1 &&
-       numberOfTimeCompartments == this->Internal->GlobalController->GetNumberOfProcesses())
-      {
-      mySubController = vtkMPIController::SafeDownCast(this->Internal->GlobalController);
-      }
-    else if(numberOfTimeCompartments > 1)
-      {
-      vtkMPIController* controller = vtkMPIController::SafeDownCast(
-        this->Internal->GlobalController);
-      mySubController.TakeReference(controller->PartitionController(
-                                      this->Internal->GlobalController->GetLocalProcessId() %
-                                      this->TimeCompartmentSize, 0));
-      }
+    this->FinishArraysSerial(numberOfTimeSteps, inFd, outFd);
     }
-
-  std::set<std::string> climatologicalSuffixes;
-  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
-  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
-      it!=climatologicalSuffixes.end();it++)
+#ifdef PARAVIEW_USE_MPI
+  else
     {
-    for (int i = 0; i < numArrays; i++)
-      {
-      vtkDataArray *inArray = inFd->GetArray(i);
-      if (!inArray)
-        {
-        continue;
-        }
-
-      if(mySubController)
-        { // only need to do min/max if there's a subcontroller
-        // minimum.
-        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MINIMUM_SUFFIX, it->c_str()))
-          {
-          vtkDataArray* tempArray = outArray->NewInstance();
-          tempArray->DeepCopy(outArray);
-          mySubController->Reduce(tempArray, outArray, vtkCommunicator::MIN_OP, 0);
-          tempArray->Delete();
-          }
-        // maximum.
-        if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MAXIMUM_SUFFIX, it->c_str()))
-          {
-          vtkDataArray* tempArray = outArray->NewInstance();
-          tempArray->DeepCopy(outArray);
-          mySubController->Reduce(tempArray, outArray, vtkCommunicator::MAX_OP, 0);
-          tempArray->Delete();
-          }
-        }
-
-      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX, it->c_str()))
-        {
-        // first compute this process's average.  every process already
-        // knows enough to finish its local std dev computation
-        switch (inArray->GetDataType())
-          {
-          vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishAverage(
-                             static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
-                             inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples()));
-          }
-        if(mySubController)
-          {
-          if(mySubController->GetLocalProcessId() == 0)
-            {
-            // keep track of the size of our statistical sample set stored in
-            // outArray
-            vtkDataArray* diffAverageArray = outArray->NewInstance();
-            diffAverageArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
-            diffAverageArray->SetNumberOfTuples(outArray->GetNumberOfTuples());
-            vtkSmartPointer<vtkDataArray> remoteStdDevArray;
-            if(this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX), it->c_str())
-              {
-              remoteStdDevArray.TakeReference(outArray->NewInstance());
-              remoteStdDevArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
-              remoteStdDevArray->SetNumberOfTuples(outArray->GetNumberOfTuples());
-              }
-
-            double currentSampleSize = outArray->GetComponent(outArray->GetNumberOfTuples()-1, 0);
-            for(int j=1;j<mySubController->GetNumberOfProcesses();j++)
-              {
-              double remoteSampleSize = 0;
-              mySubController->Receive(&remoteSampleSize, 1, j, j+234);
-              if(remoteSampleSize > 0)
-                {
-                mySubController->Receive(diffAverageArray, j, j+4234);
-                // get the difference between the remote average and current global average
-                switch (inArray->GetDataType())
-                  {
-                  vtkTemplateMacro(vtkMultiBlockTemporalStatisticsSubtractBFromA(
-                                     static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
-                                     static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
-                                     inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples()));
-                  }
-
-                // update the current global average
-                switch (inArray->GetDataType())
-                  {
-                  vtkTemplateMacro(vtkMultiBlockTemporalStatisticsUpdateGlobalAverage(
-                                     static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
-                                     static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
-                                     inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
-                                     remoteSampleSize, remoteSampleSize+currentSampleSize));
-                  }
-                // update the current global standard deviation
-                if(vtkDataArray* tempArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
-                  {
-                  mySubController->Receive(remoteStdDevArray, j, j+8234);
-                  switch (inArray->GetDataType())
-                    {
-                    vtkTemplateMacro(vtkMultiBlockTemporalStatisticsUpdateGlobalStdDev(
-                                       static_cast<VTK_TT*>(tempArray->GetVoidPointer(0)),
-                                       static_cast<VTK_TT*>(remoteStdDevArray->GetVoidPointer(0)),
-                                       static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
-                                       inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
-                                       remoteSampleSize, currentSampleSize));
-                    }
-                  }
-                }
-
-              currentSampleSize += remoteSampleSize;
-              } // iterating over process that need to send to their master proc
-            diffAverageArray->Delete();
-            // finish the standard deviation computation
-            if(vtkDataArray* stdOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
-              {
-              switch (inArray->GetDataType())
-                {
-                vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishGlobalStdDev(
-                                   static_cast<VTK_TT*>(stdOutArray->GetVoidPointer(0)),
-                                   inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
-                                   currentSampleSize));
-                }
-              }
-            }
-          else // send array to local process 0
-            {
-            double temp = outArray->GetComponent(outArray->GetNumberOfTuples()-1, 0);
-            mySubController->Send(&temp, 1, 0, mySubController->GetLocalProcessId()+234);
-            if(temp > 0)
-              {
-              mySubController->Send(outArray, 0, mySubController->GetLocalProcessId()+4234);
-              if(vtkDataArray* sendOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
-                {
-                mySubController->Send(sendOutArray, 0, mySubController->GetLocalProcessId()+8234);
-                }
-              }
-            }
-          } // if(mySubController)
-        else
-          {
-          // no contributions from other processes. the only statistical quantity that still
-          // needs processing is the standard deviation because we still need to divide by
-          // the sample size and then take the square root
-          if(vtkDataArray* tempOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
-            {
-            double numStepsDouble = tempOutArray->GetComponent(tempOutArray->GetNumberOfTuples()-1, 0);
-            switch (inArray->GetDataType())
-              {
-              vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishGlobalStdDev(
-                                 static_cast<VTK_TT*>(tempOutArray->GetVoidPointer(0)),
-                                 inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
-                                 numStepsDouble));
-              }
-            }
-          }
-        } // if the average array exists
-      } // iterating over input field names
-    } // iterating over climatological suffixes
+    this->FinishArraysParallel(numberOfTimeSteps, inFd, outFd);
+    }
+#endif
 
   // now we go through and set the number of tuples for the output arrays to the proper length
+  std::set<std::string> climatologicalSuffixes;
+  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
   for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
       it!=climatologicalSuffixes.end();it++)
     {
@@ -859,6 +722,215 @@ void vtkMultiBlockTemporalStatistics::FinishArrays(
       }
     }
 }
+
+//-----------------------------------------------------------------------------
+void vtkMultiBlockTemporalStatistics::FinishArraysSerial(
+  int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd)
+{
+  int numArrays = inFd->GetNumberOfArrays();
+  std::set<std::string> climatologicalSuffixes;
+  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
+  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
+      it!=climatologicalSuffixes.end();it++)
+    {
+    for (int i = 0; i < numArrays; i++)
+      {
+      vtkDataArray *inArray = inFd->GetArray(i);
+      if (!inArray)
+        {
+        continue;
+        }
+
+      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX, it->c_str()))
+        {
+        // first compute this process's average.  every process already
+        // knows enough to finish its local std dev computation
+        switch (inArray->GetDataType())
+          {
+          vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishAverage(
+                             static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
+                             inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples()));
+          }
+        if(vtkDataArray* tempOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
+          {
+          double numStepsDouble = tempOutArray->GetComponent(tempOutArray->GetNumberOfTuples()-1, 0);
+          switch (inArray->GetDataType())
+            {
+            vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishGlobalStdDev(
+                               static_cast<VTK_TT*>(tempOutArray->GetVoidPointer(0)),
+                               inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
+                               numStepsDouble));
+            }
+          }
+        }
+      } // iterating over input field names
+    } // iterating over climatological suffixes
+}
+
+#ifdef PARAVIEW_USE_MPI
+//-----------------------------------------------------------------------------
+void vtkMultiBlockTemporalStatistics::FinishArraysParallel(
+  int numberOfTimeSteps, vtkFieldData *inFd, vtkFieldData *outFd)
+{
+  int numArrays = inFd->GetNumberOfArrays();
+  if(numArrays == 0)
+    {
+    return;
+    }
+  // create new communicators so that we can efficiently do a reduce instead
+  // of point to point communications. this subcontroller is orthogonal to
+  // this->Internal->SubController and only exists if it is different
+  // than the global controller.
+  int numberOfTimeCompartments = this->GetNumberOfTimeCompartments();
+  vtkSmartPointer<vtkMPIController> mySubController;
+
+  if(this->Internal->GlobalController)
+    {
+    if(numberOfTimeCompartments > 1 &&
+       numberOfTimeCompartments == this->Internal->GlobalController->GetNumberOfProcesses())
+      {
+      mySubController = vtkMPIController::SafeDownCast(this->Internal->GlobalController);
+      }
+    else if(numberOfTimeCompartments > 1)
+      {
+      vtkMPIController* controller = vtkMPIController::SafeDownCast(
+        this->Internal->GlobalController);
+      mySubController.TakeReference(controller->PartitionController(
+                                      this->Internal->GlobalController->GetLocalProcessId() %
+                                      this->TimeCompartmentSize, 0));
+      }
+    }
+
+  std::set<std::string> climatologicalSuffixes;
+  this->GetAllClimatologicalSuffixes(numberOfTimeSteps, climatologicalSuffixes);
+  for(std::set<std::string>::iterator it=climatologicalSuffixes.begin();
+      it!=climatologicalSuffixes.end();it++)
+    {
+    for (int i = 0; i < numArrays; i++)
+      {
+      vtkDataArray *inArray = inFd->GetArray(i);
+      if (!inArray)
+        {
+        continue;
+        }
+
+      // minimum.
+      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MINIMUM_SUFFIX, it->c_str()))
+        {
+        vtkDataArray* tempArray = outArray->NewInstance();
+        tempArray->DeepCopy(outArray);
+        mySubController->Reduce(tempArray, outArray, vtkCommunicator::MIN_OP, 0);
+        tempArray->Delete();
+        }
+      // maximum.
+      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, MAXIMUM_SUFFIX, it->c_str()))
+        {
+        vtkDataArray* tempArray = outArray->NewInstance();
+        tempArray->DeepCopy(outArray);
+        mySubController->Reduce(tempArray, outArray, vtkCommunicator::MAX_OP, 0);
+        tempArray->Delete();
+        }
+
+      if(vtkDataArray* outArray = this->GetArray(outFd, inArray, AVERAGE_SUFFIX, it->c_str()))
+        {
+        // first compute this process's average.  every process already
+        // knows enough to finish its local std dev computation
+        switch (inArray->GetDataType())
+          {
+          vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishAverage(
+                             static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
+                             inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples()));
+          }
+        if(mySubController->GetLocalProcessId() == 0)
+          {
+          // keep track of the size of our statistical sample set stored in
+          // outArray
+          vtkDataArray* diffAverageArray = outArray->NewInstance();
+          diffAverageArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
+          diffAverageArray->SetNumberOfTuples(outArray->GetNumberOfTuples());
+          vtkSmartPointer<vtkDataArray> remoteStdDevArray;
+          if(this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX), it->c_str())
+            {
+            remoteStdDevArray.TakeReference(outArray->NewInstance());
+            remoteStdDevArray->SetNumberOfComponents(outArray->GetNumberOfComponents());
+            remoteStdDevArray->SetNumberOfTuples(outArray->GetNumberOfTuples());
+            }
+
+          double currentSampleSize = outArray->GetComponent(outArray->GetNumberOfTuples()-1, 0);
+          for(int j=1;j<mySubController->GetNumberOfProcesses();j++)
+            {
+            double remoteSampleSize = 0;
+            mySubController->Receive(&remoteSampleSize, 1, j, j+234);
+            if(remoteSampleSize > 0)
+              {
+              mySubController->Receive(diffAverageArray, j, j+4234);
+              // get the difference between the remote average and current global average
+              switch (inArray->GetDataType())
+                {
+                vtkTemplateMacro(vtkMultiBlockTemporalStatisticsSubtractBFromA(
+                                   static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
+                                   static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
+                                   inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples()));
+                }
+
+              // update the current global average
+              switch (inArray->GetDataType())
+                {
+                vtkTemplateMacro(vtkMultiBlockTemporalStatisticsUpdateGlobalAverage(
+                                   static_cast<VTK_TT*>(outArray->GetVoidPointer(0)),
+                                   static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
+                                   inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
+                                   remoteSampleSize, remoteSampleSize+currentSampleSize));
+                }
+              // update the current global standard deviation
+              if(vtkDataArray* tempArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
+                {
+                mySubController->Receive(remoteStdDevArray, j, j+8234);
+                switch (inArray->GetDataType())
+                  {
+                  vtkTemplateMacro(vtkMultiBlockTemporalStatisticsUpdateGlobalStdDev(
+                                     static_cast<VTK_TT*>(tempArray->GetVoidPointer(0)),
+                                     static_cast<VTK_TT*>(remoteStdDevArray->GetVoidPointer(0)),
+                                     static_cast<VTK_TT*>(diffAverageArray->GetVoidPointer(0)),
+                                     inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
+                                     remoteSampleSize, currentSampleSize));
+                  }
+                }
+              }
+
+            currentSampleSize += remoteSampleSize;
+            } // iterating over process that need to send to their master proc
+          diffAverageArray->Delete();
+          // finish the standard deviation computation
+          if(vtkDataArray* stdOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
+            {
+            switch (inArray->GetDataType())
+              {
+              vtkTemplateMacro(vtkMultiBlockTemporalStatisticsFinishGlobalStdDev(
+                                 static_cast<VTK_TT*>(stdOutArray->GetVoidPointer(0)),
+                                 inArray->GetNumberOfComponents()*inArray->GetNumberOfTuples(),
+                                 currentSampleSize));
+              }
+            }
+          }
+        else // send array to local process 0
+          {
+          double temp = outArray->GetComponent(outArray->GetNumberOfTuples()-1, 0);
+          mySubController->Send(&temp, 1, 0, mySubController->GetLocalProcessId()+234);
+          if(temp > 0)
+            {
+            mySubController->Send(outArray, 0, mySubController->GetLocalProcessId()+4234);
+            if(vtkDataArray* sendOutArray = this->GetArray(outFd, inArray, STANDARD_DEVIATION_SUFFIX, it->c_str()))
+              {
+              mySubController->Send(sendOutArray, 0, mySubController->GetLocalProcessId()+8234);
+              }
+            }
+          }
+        } // if the average array exists
+      } // iterating over input field names
+    } // iterating over climatological suffixes
+}
+#endif
 
 //-----------------------------------------------------------------------------
 vtkDataArray *vtkMultiBlockTemporalStatistics::GetArray(
