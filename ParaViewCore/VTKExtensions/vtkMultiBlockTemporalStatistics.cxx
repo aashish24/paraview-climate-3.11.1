@@ -263,7 +263,6 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->ComputeMinimum = 1;
   this->ComputeMaximum = 1;
   this->ComputeStandardDeviation = 1;
-  this->TimeCompartmentSize = 0;
   this->TimeSpan = 0;
   this->SamplingMethod = 0;
   this->StartDate = 0;
@@ -274,10 +273,9 @@ vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
   this->Internal = new vtkMultiBlockTemporalStatisticsInternal;
 
   this->Internal->GlobalController = vtkMultiProcessController::GetGlobalController();
-  int numberOfProcesses = this->Internal->GlobalController->GetNumberOfProcesses();
-
-  // below set CurrentTimeIndex as well
-  this->SetTimeCompartmentSize(numberOfProcesses);
+  this->Internal->SubController = this->Internal->GlobalController;
+  // by default all processes work together on the same time step
+  this->TimeCompartmentSize = this->Internal->GlobalController->GetNumberOfProcesses();
 }
 
 //-----------------------------------------------------------------------------
@@ -313,11 +311,9 @@ void vtkMultiBlockTemporalStatistics::SetTimeCompartmentSize(int size)
       }
     return;
     }
-  int numberOfProcesses = 1;
-  if(this->Internal->GlobalController)
-    {
-    numberOfProcesses = this->Internal->GlobalController->GetNumberOfProcesses();
-    }
+  int numberOfProcesses =
+    this->Internal->GlobalController->GetNumberOfProcesses();
+
   if(size < 0 || size > numberOfProcesses || numberOfProcesses % size != 0)
     {
     vtkWarningMacro("Bad TimeCompartmentSize of " << size << " NumberOfProcesses "
@@ -433,21 +429,18 @@ int vtkMultiBlockTemporalStatistics::RequestUpdateExtent(
       }
     }
   int piece = 0;
-//#ifdef PARAVIEW_USE_MPI
   if(vtkMultiProcessController* subController = this->GetTimeCompartmentController())
     {
     piece = subController->GetLocalProcessId();
     }
-//#endif
-  // the parts below are probably not correct for every situation.  i probably
-  // should check for a 3d whole extent for structured grids and may need
-  // some dustup for unstructured grids.
-  if(vtkExtentTranslator* et = vtkExtentTranslator::SafeDownCast(
-       inInfo->Get(vtkStreamingDemandDrivenPipeline::EXTENT_TRANSLATOR())))
+  // if inWholeExt exists, we have a structured data set
+  if(int* inWholeExt = inInfo->Get(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT()))
     {
+    vtkExtentTranslator* et = vtkExtentTranslator::SafeDownCast(
+      inInfo->Get(vtkStreamingDemandDrivenPipeline::EXTENT_TRANSLATOR()));
     int extent[6];
     et->SetNumberOfPieces(this->TimeCompartmentSize);
-    et->SetWholeExtent(inInfo->Get(vtkStreamingDemandDrivenPipeline::WHOLE_EXTENT()));
+    et->SetWholeExtent(inWholeExt);
     et->SetPiece(piece);
     et->SetGhostLevel(0);
     et->PieceToExtent();
