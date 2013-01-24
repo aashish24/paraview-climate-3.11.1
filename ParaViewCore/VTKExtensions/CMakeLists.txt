@@ -78,6 +78,7 @@ SET (Kit_SRCS
   vtkMinMax.cxx
   vtkMPICompositeManager.cxx
   vtkMOCReader.cxx
+  vtkMultiBlockTemporalStatistics.cxx
   vtkMultiProcessControllerHelper.cxx
   vtkOrderedCompositeDistributor.cxx
   vtkParallelSerialWriter.cxx
@@ -230,6 +231,7 @@ IF (VTK_USE_MPI)
     INCLUDE_DIRECTORIES(${ICET_INCLUDE_DIR})
     SET(KIT_LIBS ${KIT_LIBS} IceTCore IceTMPI IceTGL)
   ENDIF (PARAVIEW_USE_ICE_T)
+  ADD_DEFINITIONS(-DPARAVIEW_USE_MPI)
   INCLUDE_DIRECTORIES(${MPI_INCLUDE_PATH})
 ENDIF (VTK_USE_MPI)
 
