@@ -1,21 +1,21 @@
 /*=========================================================================
 
-  Module:    vtkMOCReader.h
+  Module:    vtkMHTReader.h
 
 =========================================================================*/
-// .NAME vtkMOCReader - read in POP data files and output MOC
+// .NAME vtkMHTReader - read in POP data files and output MHT
 // .SECTION Description
-// vtkMOCReader is a source object that calculates the meridional overturning
-// circulation. The initial file is a text file listing paths to all the
-// required binary data files. The output of this reader is a 2D rectilinear grid
+// vtkMHTReader is a source object that calculates the meridional heat
+// transport. The initial file is a text file listing paths to all the
+// required binary data files. The output of this reader is a 1D rectilinear grid
 // object
 // .SECTION Caveats
 // Files may need to be byte swapped.
 // .SECTION See Also
-// vtkMHTReader
+// vtkMOCReader
 
-#ifndef __vtkMOCReader_h
-#define __vtkMOCReader_h
+#ifndef __vtkMHTReader_h
+#define __vtkMHTReader_h
 
 #include <string>
 #include <iostream>
@@ -29,18 +29,19 @@ class Matrix2DDouble;
 class Matrix2DFloat;
 class Matrix2DInt;
 class Matrix3DFloat;
+class POPInputInformation;
 class InternalMHTWorkArrays;
 
-class VTK_EXPORT vtkMOCReader : public vtkAbstractPOPReader
+class VTK_EXPORT vtkMHTReader : public vtkAbstractPOPReader
 {
 public:
-  static vtkMOCReader *New();
-  vtkTypeMacro(vtkMOCReader, vtkAbstractPOPReader);
+  static vtkMHTReader *New();
+  vtkTypeMacro(vtkMHTReader, vtkAbstractPOPReader);
   void PrintSelf(ostream& os, vtkIndent indent);
 
 protected:
-  vtkMOCReader();
-  ~vtkMOCReader();
+  vtkMHTReader();
+  ~vtkMHTReader();
   int RequestInformation(vtkInformation *,
                          vtkInformationVector **,
                          vtkInformationVector *);
@@ -48,7 +49,7 @@ protected:
                   vtkInformationVector **,
                   vtkInformationVector *);
 
-  int CalculateMOC(vtkRectilinearGrid* output, int* ext);
+  int CalculateMHT(vtkRectilinearGrid* output, int* extMHT);
   void wcalc(Matrix1DFloat& dz, Matrix2DFloat& dxu,
              Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
              Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w,
@@ -57,14 +58,13 @@ protected:
                  Matrix2DFloat& dyu, Matrix2DFloat& tarea, Matrix2DInt& kmt,
                  Matrix3DFloat& u, Matrix3DFloat& v, Matrix3DFloat& w, int imt, int jmt);
 
-  void moc(POPInputInformation* popInfo, Matrix3DFloat& v, Matrix3DFloat& w,
-           Matrix2DInt& kmtb, Matrix2DFloat& tLat, Matrix2DFloat& dxu,
-           Matrix2DFloat& tarea, Matrix1DFloat& dz, Matrix3DFloat& dzu, Matrix1DFloat& lats,
-           int ny, int local_jj, bool has_global_jj, float southern_lat,
-           int imt, int jmt, Matrix2DFloat& psi);
+  void meridional_heat(POPInputInformation* popInfo, Matrix2DInt& kmtb, Matrix2DFloat& tLat,
+                       Matrix1DFloat& lats, int imt1GL, int jmt1GL, int ny, int jj, bool hasGlobalJIndexMin, float southern_lat,
+                       Matrix1DFloat& mht);
 
 private:
-  vtkMOCReader(const vtkMOCReader&);          // not implemented
-  void operator = (const vtkMOCReader&);   // not implemented
+  vtkMHTReader(const vtkMHTReader&);          // not implemented
+  void operator = (const vtkMHTReader&);   // not implemented
+  InternalMHTWorkArrays* MHTWorkArrays;
 };
 #endif

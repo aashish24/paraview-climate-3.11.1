@@ -17,6 +17,7 @@ IF(NOT WIN32)
 ENDIF(NOT WIN32)
 
 SET (Kit_SRCS
+  vtkAbstractPOPReader.cxx
   vtkAMRDualClip.cxx
   vtkAMRDualContour.cxx
   vtkAMRDualGridHelper.cxx
@@ -73,9 +74,11 @@ SET (Kit_SRCS
   vtkMaterialInterfaceToProcMap.cxx
   vtkMergeArrays.cxx
   vtkMergeCompositeDataSet.cxx
+  vtkMHTReader.cxx
   vtkMinMax.cxx
   vtkMPICompositeManager.cxx
   vtkMOCReader.cxx
+  vtkMultiBlockTemporalStatistics.cxx
   vtkMultiProcessControllerHelper.cxx
   vtkOrderedCompositeDistributor.cxx
   vtkParallelSerialWriter.cxx
@@ -89,6 +92,7 @@ SET (Kit_SRCS
   vtkPlotEdges.cxx
   vtkPointHandleRepresentationSphere.cxx
   vtkPolyLineToRectilinearGridFilter.cxx
+  vtkPOPMatrices.cxx
   vtkPPhastaReader.cxx
   vtkPriorityHelper.cxx
   vtkPSciVizContingencyStats.cxx
@@ -227,6 +231,7 @@ IF (VTK_USE_MPI)
     INCLUDE_DIRECTORIES(${ICET_INCLUDE_DIR})
     SET(KIT_LIBS ${KIT_LIBS} IceTCore IceTMPI IceTGL)
   ENDIF (PARAVIEW_USE_ICE_T)
+  ADD_DEFINITIONS(-DPARAVIEW_USE_MPI)
   INCLUDE_DIRECTORIES(${MPI_INCLUDE_PATH})
 ENDIF (VTK_USE_MPI)
 
@@ -262,12 +267,14 @@ SET_SOURCE_FILES_PROPERTIES(
   )
 
 SET_SOURCE_FILES_PROPERTIES(
+  vtkAbstractPOPReader.cxx
   vtkAnimationPlayer.cxx
   vtkCacheSizeKeeper.cxx
   vtkCameraManipulatorGUIHelper.cxx
   vtkCellIntegrator.cxx
   vtkImageCompressor.cxx
   vtkPEnSightReader.cxx
+  vtkPOPMatrices.cxx
   vtkPVAnimationCue.cxx
   vtkPVCueManipulator.cxx
   vtkPVJoystickFly.cxx

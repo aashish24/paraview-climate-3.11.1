@@ -55,6 +55,7 @@
     <Proxy group="filters" name="TemporalSnapToTimeStep" />
     <Proxy group="filters" name="TemporalShiftScale" />
     <Proxy group="filters" name="TemporalStatistics" />
+    <Proxy group="filters" name="MultiBlockTemporalStatistics" />
     <Proxy group="filters" name="TimeToTextConvertor" />
   </Category>
 

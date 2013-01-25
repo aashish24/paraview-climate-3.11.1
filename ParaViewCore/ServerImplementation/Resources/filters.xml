@@ -11025,5 +11025,139 @@ This property controls how the filter works to generate tensor cell data. You ca
    <!-- End IntersectFragments -->
    </SourceProxy>
 
+   <!-- ==================================================================== -->
+   <SourceProxy name="MultiBlockTemporalStatistics"
+                class="vtkMultiBlockTemporalStatistics"
+                label="MultiBlock Temporal Statistics">
+     <Documentation
+         long_help="Computes temporal statistics using time compartments."
+         short_help="Computes temporal statistics using time compartments.">
+     </Documentation>
+     <InputProperty
+         name="Input"
+         command="SetInputConnection">
+       <ProxyGroupDomain name="groups">
+         <Group name="sources"/>
+         <Group name="filters"/>
+       </ProxyGroupDomain>
+       <DataTypeDomain name="input_type">
+         <DataType value="vtkDataSet"/>
+       </DataTypeDomain>
+     </InputProperty>
+     <IntVectorProperty
+         name="ComputeAverage"
+         command="SetComputeAverage"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the average.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="ComputeMinimum"
+         command="SetComputeMinimum"
+         number_of_elements="1"
+         default_values="1" >
+       <BooleanDomain name="bool"/>
+       <Documentation>
+         Compute the minimum.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="ComputeMaximum"
+         command="SetComputeMaximum"
+         number_of_elements="1"
+         default_values="1">
+       <BooleanDomain name="bool" />
+       <Documentation>
+         Compute the maximum of each point and cell variable over time.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="ComputeStandardDeviation"
+         command="SetComputeStandardDeviation"
+         number_of_elements="1"
+         default_values="1">
+       <BooleanDomain name="bool" />
+       <Documentation>
+         Compute the standard deviation of each point and cell variable over time.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="TimeSpan"
+         label="Time Span"
+         command="SetTimeSpan"
+         number_of_elements="1"
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="AllTimeSteps"/>
+         <Entry value="1" text="Month"/>
+         <Entry value="2" text="Season"/>
+         <Entry value="3" text="Year"/>
+         <Entry value="4" text="Decade"/>
+       </EnumerationDomain>
+       <Documentation>
+         Specify what span of time to average together.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="SamplingMethod"
+         label="Sampling Method"
+         command="SetSamplingMethod"
+         number_of_elements="1"
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="Climatology"/>
+         <Entry value="1" text="Consecutive"/>
+         <Entry value="2" text="OddEven"/>
+       </EnumerationDomain>
+       <Documentation>
+         Specify how to group the statistics. Climatology means that all of a type are grouped together (e.g. all Februaries), Consecutive means a specific time period (e.g. February 2012). OddEven is meant for testing.
+       </Documentation>
+     </IntVectorProperty>
+     <IntVectorProperty
+         name="TimeCompartmentSize"
+         command="SetTimeCompartmentSize"
+         number_of_elements="1"
+         default_values="1" >
+       <Documentation>
+         Set the amount of processes that will work together.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="TimeStepLength"
+         command="SetTimeStepLength"
+         number_of_elements="1"
+         default_values="1" >
+       <Documentation>
+         The number of days or months in a time step.
+       </Documentation>
+     </IntVectorProperty>
+
+     <IntVectorProperty
+         name="TimeStepType"
+         command="SetTimeStepType"
+         number_of_elements="1"
+         default_values="0" >
+       <EnumerationDomain name="enum">
+         <Entry value="0" text="Days"/>
+         <Entry value="1" text="Months"/>
+       </EnumerationDomain>
+       <Documentation>
+         Whether the time step is in days (0) or months (1).
+       </Documentation>
+     </IntVectorProperty>
+<!--
+     <Hints>
+       <Property name="TimeSpan" show="1"/>
+     </Hints>
+-->
+   <!-- End MultiBlockTemporalStatistics -->
+   </SourceProxy>
+
   </ProxyGroup>
 </ServerManagerConfiguration>

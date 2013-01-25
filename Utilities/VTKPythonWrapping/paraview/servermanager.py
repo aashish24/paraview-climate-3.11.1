@@ -692,10 +692,18 @@ class ColorArrayProperty(VectorProperty):
                 break
 
         if  not found:
-            raise ValueError("Could not locate array %s in the input." % arr)
+            pvoptions = vtkProcessModule.GetProcessModule().GetOptions()
+            # if this process is from a parallel batch run in symmetric mpi mode
+            # then we may not have any points or cells on some processes in which
+            # case we'll probably be missing the point and cell data too.  the
+            # check below makes sure that we avoid this situation.
+            if pvoptions.GetProcessType() != 0x40 or pvoptions.GetSymmetricMPIMode() == False \
+                    or len(self.Available) != 0:
+                raise ValueError("Could not locate array %s in the input." % arr)
 
         catt = self.Proxy.GetProperty("ColorAttributeType")
-        catt.SetData(att)
+        if att != None:
+            catt.SetData(att)
         self.SMProperty.SetElement(0, arr)
         self._UpdateProperty()
 
