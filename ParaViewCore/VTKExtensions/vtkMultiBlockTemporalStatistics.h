@@ -69,7 +69,7 @@ class vtkInformationObjectBaseKey;
 class vtkMultiProcessController;
 class vtkMultiBlockTemporalStatisticsInternal;
 
-class VTK_GRAPHICS_EXPORT vtkMultiBlockTemporalStatistics : public vtkMultiBlockDataSetAlgorithm
+class VTK_EXPORT vtkMultiBlockTemporalStatistics : public vtkMultiBlockDataSetAlgorithm
 {
 public:
   vtkTypeMacro(vtkMultiBlockTemporalStatistics, vtkMultiBlockDataSetAlgorithm);
