@@ -275,7 +275,6 @@ SET_SOURCE_FILES_PROPERTIES(
   vtkCellIntegrator.cxx
   vtkImageCompressor.cxx
   vtkPEnSightReader.cxx
-  vtkPOPMatrices.cxx
   vtkPVAnimationCue.cxx
   vtkPVCueManipulator.cxx
   vtkPVJoystickFly.cxx
