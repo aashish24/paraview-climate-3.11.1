@@ -18,6 +18,8 @@ scriptFileName = "%5"
 # that will work on the remote machine
 def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
     global reader_input_map, export_rendering
+
+    print "proxy name is ", info.ProxyName, info
     if info.ProxyName in reader_input_map.keys():
         # mark this proxy as a reader input to make it easier to locate the
         # reader input for the writers.
@@ -41,7 +43,12 @@ def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
                          screenshot_info[proxyName][3], "tp_views" ]
         return ("CreateView", ctorArgs, extraCtorCommands)
 
-    # handle writers.
+    if proxy.GetXMLGroup() == 'filters' and proxy.GetXMLLabel() == 'MultiBlock Temporal Statistics':
+        import re
+        # replace with the desired time compartment size for the scripts multiblock temporal statistics
+        newts = 'TimeCompartmentSize='+str(timeCompartmentSize)
+        ctorArgs = [newts if re.match("^TimeCompartmentSize", a) != None else a for a in ctorArgs]
+
     if not proxy.GetHints() or \
       not proxy.GetHints().FindNestedElementByName("TemporalParallelism"):
         return (ctorMethod, ctorArgs, extraCtorCommands)
