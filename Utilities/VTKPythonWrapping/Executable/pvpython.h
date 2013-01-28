@@ -97,6 +97,7 @@ namespace ParaViewPython {
 
       // Start interpretor
       vtkPVPythonInterpretor* interpretor = vtkPVPythonInterpretor::New();
+      interpretor->SetIncludeParaViewPaths(1);
       ret_val = interpretor->PyMain(pythonArgs.size(), &*pythonArgs.begin());
       interpretor->Delete();
 

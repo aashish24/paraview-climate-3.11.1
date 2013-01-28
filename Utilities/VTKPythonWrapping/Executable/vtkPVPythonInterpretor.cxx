@@ -265,6 +265,7 @@ vtkPVPythonInterpretor::vtkPVPythonInterpretor()
   this->Internal = new vtkPVPythonInterpretorInternal();
   this->ExecutablePath = 0;
   this->CaptureStreams = false;
+  this->IncludeParaViewPaths = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -356,34 +357,34 @@ void vtkPVPythonInterpretor::ClearMessages()
 void vtkPVPythonInterpretor::InitializeInternal()
 {
 /*
-Don't try to setup to run from build tree in uvcdat.
-uvcdat never runs that way, but the build tree libs are found and adding them
-causes runtime crash on mac due to duplicate libs.
+  Don't try to setup to run from build tree in uvcdat.
+  uvcdat never runs that way, but the build tree libs are found and adding them
+  causes runtime crash on mac due to duplicate libs. if we are running
+  from paraview, pvpython or pvbatch we do want to set these up though.
 */
-#define INCDAT 1
-
-#if !INCDAT
-  // The following code will hack in the path for running VTK/Python
-  // from the build tree. Do not try this at home. We are
-  // professionals.
-
-  // Compute the directory containing this executable.  The python
-  // sys.executable variable contains the full path to the interpreter
-  // executable.
-  const char* exe_str =  this->ExecutablePath;
-  if (!exe_str)
+  if(this->IncludeParaViewPaths)
     {
-    PyObject* executable = PySys_GetObject(const_cast<char*>("executable"));
-    exe_str = PyString_AsString(executable);
+    // The following code will hack in the path for running VTK/Python
+    // from the build tree. Do not try this at home. We are
+    // professionals.
+
+    // Compute the directory containing this executable.  The python
+    // sys.executable variable contains the full path to the interpreter
+    // executable.
+    const char* exe_str =  this->ExecutablePath;
+    if (!exe_str)
+      {
+      PyObject* executable = PySys_GetObject(const_cast<char*>("executable"));
+      exe_str = PyString_AsString(executable);
+      }
+    if (exe_str)
+      {
+      // Use the executable location to try to set sys.path to include
+      // the VTK python modules.
+      vtkstd::string self_dir = vtksys::SystemTools::GetFilenamePath(exe_str);
+      vtkPythonAppInitPrependPath(self_dir.c_str());
+      }
     }
-  if (exe_str)
-    {
-    // Use the executable location to try to set sys.path to include
-    // the VTK python modules.
-    vtkstd::string self_dir = vtksys::SystemTools::GetFilenamePath(exe_str);
-    vtkPythonAppInitPrependPath(self_dir.c_str());
-    }
-#endif
 
   if (this->CaptureStreams)
     {

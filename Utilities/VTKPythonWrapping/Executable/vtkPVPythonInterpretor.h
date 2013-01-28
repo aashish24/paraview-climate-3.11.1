@@ -107,6 +107,16 @@ public:
   // Can be called only after InitializeSubInterpretor().
   void AddPythonPath(const char*);
 
+  // Description:
+  // Specify whether or not to add in ParaView paths. If we're running
+  // from UV-CDAT we don't want to do this (i.e. IncludeParaViewPaths=0)
+  // but otherwise we will since then we would have to manually set
+  // PYTHONPATH and possibly LD_LIBRARY_PATH in order to import paraview.
+  // The default value is 0. This needs to be called before
+  // InitializeSubInterpretor is called.
+  vtkSetMacro(IncludeParaViewPaths, int);
+  vtkGetMacro(IncludeParaViewPaths, int);
+
 protected:
   vtkPVPythonInterpretor();
   ~vtkPVPythonInterpretor();
@@ -131,6 +141,8 @@ protected:
 private:
   vtkPVPythonInterpretor(const vtkPVPythonInterpretor&); // Not implemented.
   void operator=(const vtkPVPythonInterpretor&); // Not implemented.
+
+  int IncludeParaViewPaths;
 
   vtkPVPythonInterpretorInternal* Internal;
 };
