@@ -131,6 +131,7 @@ struct pqPythonShell::pqImplementation
   {
     this->destroyInterpretor();
     this->Interpreter = vtkPVPythonInteractiveInterpretor::New();
+    this->Interpreter->SetIncludeParaViewPaths(1);
     this->Interpreter->SetCaptureStreams(true);
     this->Interpreter->InitializeSubInterpretor(argc, argv);
     this->Interpreter->MakeCurrent();
