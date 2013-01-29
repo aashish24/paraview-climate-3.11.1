@@ -1,4 +1,13 @@
 # Tell vtkWrapPython.cmake to set VTK_PYTHON_LIBRARIES for us.
+
+# If we build with UVCDAT don't try to setup to run from build tree in uvcdat.
+# uvcdat never runs that way, but the build tree libs are found and adding them
+# causes runtime crash on mac due to duplicate libs. To do this, set
+# INCLUDE_PYTHONHOME_PATHS to OFF which should be done in the UVCDAT superbuild
+# so by default it is for users that are building ParaView separately.
+SET(INCLUDE_PYTHONHOME_PATHS ON CACHE BOOL "Build ParaView with PYTHONHOME set")
+MARK_AS_ADVANCED(INCLUDE_PYTHONHOME_PATHS)
+
 SET(VTK_WRAP_PYTHON_FIND_LIBS 1)
 SET(VTK_WRAP_INCLUDE_DIRS
   "${ParaView_BINARY_DIR}/VTK"
