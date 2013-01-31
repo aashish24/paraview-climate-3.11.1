@@ -7,4 +7,6 @@
 
 #define PARAVIEW_VERSION "@PARAVIEW_VERSION@"
 
+#cmakedefine INCLUDE_PYTHONHOME_PATHS
+
 #endif
