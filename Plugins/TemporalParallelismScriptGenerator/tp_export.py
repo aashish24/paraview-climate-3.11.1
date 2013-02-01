@@ -32,7 +32,7 @@ def tp_hook(info, ctorMethod, ctorArgs, extraCtorCommands):
                 newArgs.append(arg)
         newArgs = [ctorMethod, newArgs, "\"%s\"" % info.Proxy.tpReaderInput]
         ctorMethod = "CreateReader"
-        extraCtorCommands = "timeSteps = GetActiveSource().TimestepValues"
+        extraCtorCommands = "timeSteps = GetActiveSource().TimestepValues if len(GetActiveSource().TimestepValues)!=0 else [0]"
         return (ctorMethod, newArgs, extraCtorCommands)
     proxy = info.Proxy
     # handle views
