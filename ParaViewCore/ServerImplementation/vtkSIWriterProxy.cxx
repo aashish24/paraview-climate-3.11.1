@@ -17,9 +17,12 @@
 #include "vtkClientServerInterpreter.h"
 #include "vtkClientServerStream.h"
 #include "vtkCompleteArrays.h"
+#include "vtkInformation.h"
+#include "vtkInformationVector.h"
 #include "vtkMultiProcessController.h"
 #include "vtkObjectFactory.h"
 #include "vtkSIInputProperty.h"
+#include "vtkStreamingDemandDrivenPipeline.h"
 #include "vtkProcessModule.h"
 #include "vtkPVXMLElement.h"
 
@@ -184,6 +187,22 @@ void vtkSIWriterProxy::CleanInputs(const char* method)
     completeArrays->SetInputConnection(NULL);
     }
   this->Superclass::CleanInputs(method);
+}
+
+//----------------------------------------------------------------------------
+void vtkSIWriterProxy::UpdatePipelineTime(double time)
+{
+  vtkAlgorithm* writer = vtkAlgorithm::SafeDownCast(this->GetVTKObject());
+  if(!writer)
+    {
+    vtkErrorMacro("Unexpected VTK object " <<
+                  (this->GetVTKObject() ?
+                   this->GetVTKObject()->GetClassName() : "(NULL"));
+    return;
+    }
+  vtkInformationVector** inputVector = writer->GetExecutive()->GetInputInformation();
+  inputVector[0]->GetInformationObject(0)->Set(
+    vtkStreamingDemandDrivenPipeline::UPDATE_TIME_STEPS(), &time, 1);
 }
 
 //----------------------------------------------------------------------------
