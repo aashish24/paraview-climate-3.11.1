@@ -179,7 +179,9 @@ void vtkOSOpenGLRenderWindow::DestroyWindow()
     delete[] this->Capabilities;
     this->Capabilities = 0;
     }
-    
+
+  this->DestroyOffScreenWindow();
+
   // make sure all other code knows we're not mapped anymore
   this->Mapped = 0;
 
