@@ -41,7 +41,7 @@ class vtkRectilinearGrid;
 class vtkStructuredGrid;
 class vtkUnstructuredGrid;
 
-class VTK_IO_EXPORT vtkNetCDFCFReader : public vtkNetCDFReader
+class VTK_PARALLEL_EXPORT vtkNetCDFCFReader : public vtkNetCDFReader
 {
 public:
   vtkTypeMacro(vtkNetCDFCFReader, vtkNetCDFReader);
