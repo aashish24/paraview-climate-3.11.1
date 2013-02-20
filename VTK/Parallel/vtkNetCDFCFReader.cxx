@@ -32,6 +32,8 @@
 #include "vtkIntArray.h"
 #include "vtkMath.h"
 #include "vtkMergePoints.h"
+#include "vtkMultiProcessController.h"
+#include "vtkMultiProcessStream.h"
 #include "vtkObjectFactory.h"
 #include "vtkPoints.h"
 #include "vtkRectilinearGrid.h"
@@ -79,21 +81,51 @@
 static bool ReadTextAttribute(int ncFD, int varId, const char *name,
                               vtkStdString &result)
 {
-  size_t length;
-  if (nc_inq_attlen(ncFD, varId, name, &length) != NC_NOERR) return false;
+  size_t length = 0;
+  int retVal = 0;
+  vtkMultiProcessController* controller = vtkMultiProcessController::GetGlobalController();
+  if(controller->GetLocalProcessId() == 0)
+    {
+    if (nc_inq_attlen(ncFD, varId, name, &length) == NC_NOERR)
+      {
+      retVal = 1;
+      }
+    }
+  unsigned long tmp[2] = {retVal, length};
+  controller->Broadcast(tmp, 2, 0);
+  if(tmp[0] == 0)
+    {
+    return false;
+    }
 
-  result.resize(length);
-  if (nc_get_att_text(ncFD,varId,name,&result.at(0)) != NC_NOERR) return false;
+  result.resize(tmp[1]);
+  vtkMultiProcessStream stream;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    retVal = (nc_get_att_text(ncFD,varId,name,&result.at(0)) == NC_NOERR ? 1 : 0);
+    stream << retVal;
 
-  // The line below seems weird, but it is here for a good reason.  In general,
-  // text attributes are not null terminated, so you have to add your own (which
-  // the vtkStdString will do for us).  However, sometimes a null terminating
-  // character is written in the attribute anyway.  In a C string this is no big
-  // deal.  But it means that the vtkStdString has a null character in it and it
-  // is technically different than its own C string.  This line corrects that
-  // regardless of whether the null string was written we will get the right
-  // string.
-  result = result.c_str();
+    if(retVal)
+      {
+      // The line below seems weird, but it is here for a good reason.  In general,
+      // text attributes are not null terminated, so you have to add your own (which
+      // the vtkStdString will do for us).  However, sometimes a null terminating
+      // character is written in the attribute anyway.  In a C string this is no big
+      // deal.  But it means that the vtkStdString has a null character in it and it
+      // is technically different than its own C string.  This line corrects that
+      // regardless of whether the null string was written we will get the right
+      // string.
+      result = result.c_str();
+      stream << result;
+      }
+    }
+  controller->Broadcast(stream, 0);
+  stream >> retVal;
+  if(retVal == 0)
+    {
+    return false;
+    }
+  stream >> result;
 
   return true;
 }
@@ -132,11 +164,24 @@ int vtkNetCDFCFReader::vtkDimensionInfo::LoadMetaData(int ncFD)
   this->Units = UNDEFINED_UNITS;
 
   char name[NC_MAX_NAME+1];
-  CALL_NETCDF_GW(nc_inq_dimname(ncFD, this->DimId, name));
+  vtkMultiProcessController* controller = vtkMultiProcessController::GetGlobalController();
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_dimname(ncFD, this->DimId, name));
+    }
+  controller->Broadcast(name, NC_MAX_NAME+1,0);
   this->Name = name;
 
-  size_t dimLen;
-  CALL_NETCDF_GW(nc_inq_dimlen(ncFD, this->DimId, &dimLen));
+  size_t dimLen = 0;
+  unsigned long tmp; // used for storing size_t information temporarily
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_dimlen(ncFD, this->DimId, &dimLen));
+    }
+  tmp = dimLen;
+  controller->Broadcast(&tmp, 1, 0);
+  dimLen = tmp;
+
   this->Coordinates = vtkSmartPointer<vtkDoubleArray>::New();
   this->Coordinates->SetName((this->Name + "_Coordinates").c_str());
   this->Coordinates->SetNumberOfComponents(1);
@@ -163,8 +208,12 @@ int vtkNetCDFCFReader::vtkDimensionInfo::LoadMetaData(int ncFD)
     this->SpecialVariables->InsertNextValue(name);
 
     // Read coordinates
-    CALL_NETCDF_GW(nc_get_var_double(ncFD, varId,
-                                     this->Coordinates->GetPointer(0)));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF_GW(nc_get_var_double(ncFD, varId,
+                                       this->Coordinates->GetPointer(0)));
+      }
+    controller->Broadcast(this->Coordinates->GetPointer(0), this->Coordinates->GetSize(), 0);
 
     // Check to see if the spacing is regular.
     this->Origin = this->Coordinates->GetValue(0);
@@ -262,23 +311,34 @@ int vtkNetCDFCFReader::vtkDimensionInfo::LoadMetaData(int ncFD)
       this->SpecialVariables->InsertNextValue(boundsName);
 
       int boundsVarId;
-      CALL_NETCDF_GW(nc_inq_varid(ncFD, boundsName.c_str(), &boundsVarId));
+      if(controller->GetLocalProcessId() == 0)
+        {
+        CALL_NETCDF_GW(nc_inq_varid(ncFD, boundsName.c_str(), &boundsVarId));
+        }
+      controller->Broadcast(&boundsVarId, 1, 0);
 
       // Read in the first bound value for each entry as a point bound.  If the
       // cells are connected, the second bound value should equal the first
       // bound value of the next entry anyway.
       size_t start[2];  start[0] = start[1] = 0;
       size_t count[2];  count[0] = dimLen;  count[1] = 1;
-      CALL_NETCDF_GW(nc_get_vars_double(ncFD, boundsVarId, start, count, NULL,
-                                        this->Bounds->GetPointer(0)));
+      if(controller->GetLocalProcessId() == 0)
+        {
+        CALL_NETCDF_GW(nc_get_vars_double(ncFD, boundsVarId, start, count, NULL,
+                                          this->Bounds->GetPointer(0)));
 
-      // Read in the last value for the bounds array.  It will be the second
-      // bound in the last entry.  This will not be replicated unless the
-      // dimension is a longitudinal one that wraps all the way around.
-      start[0] = dimLen-1;  start[1] = 1;
-      count[0] = 1;  count[1] = 1;
-      CALL_NETCDF_GW(nc_get_vars_double(ncFD, boundsVarId, start, count, NULL,
-                                        this->Bounds->GetPointer(dimLen)));
+        // Read in the last value for the bounds array.  It will be the second
+        // bound in the last entry.  This will not be replicated unless the
+        // dimension is a longitudinal one that wraps all the way around.
+        start[0] = dimLen-1;  start[1] = 1;
+        count[0] = 1;  count[1] = 1;
+        if(controller->GetLocalProcessId() == 0)
+          {
+          CALL_NETCDF_GW(nc_get_vars_double(ncFD, boundsVarId, start, count, NULL,
+                                            this->Bounds->GetPointer(dimLen)));
+          }
+        }
+      controller->Broadcast(this->Bounds->GetPointer(0), this->Bounds->GetSize(), 0);
       }
     else
       {
@@ -346,6 +406,8 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
   this->GridDimensions = vtkSmartPointer<vtkIntArray>::New();
   this->SpecialVariables = vtkSmartPointer<vtkStringArray>::New();
 
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
   // The grid dimensions are the dimensions on the variable.  Since multiple
   // variables can be put on the same grid and this class identifies grids by
   // their variables, I group all of the dimension combinations together for 2D
@@ -355,7 +417,11 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
   // coordinates are needed, then duplicate dimensions should be created.
   // Anyone who disagrees should write their own reader class.
   int numGridDimensions;
-  CALL_NETCDF_GW(nc_inq_varndims(ncFD, varId, &numGridDimensions));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_varndims(ncFD, varId, &numGridDimensions));
+    }
+  controller->Broadcast(&numGridDimensions, 1, 0);
 
   if(numGridDimensions == 0)
     {
@@ -365,8 +431,12 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
     }
 
   this->GridDimensions->SetNumberOfTuples(numGridDimensions);
-  CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId,
-                                 this->GridDimensions->GetPointer(0)));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId,
+                                   this->GridDimensions->GetPointer(0)));
+    }
+  controller->Broadcast(this->GridDimensions->GetPointer(0), numGridDimensions, 0);
 
   // Remove initial time dimension, which has no effect on data type.
   if (parent->IsTimeDimension(ncFD, this->GridDimensions->GetValue(0)))
@@ -404,21 +474,39 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
        iter != coordName.end(); iter++)
     {
     int auxCoordVarId;
-    if (nc_inq_varid(ncFD, iter->c_str(), &auxCoordVarId) != NC_NOERR) continue;
+    int errorCode = 0;
+    if(controller->GetLocalProcessId() == 0)
+      {
+      errorCode = nc_inq_varid(ncFD, iter->c_str(), &auxCoordVarId);
+      }
+    controller->Broadcast(&errorCode, 1, 0);
+    if(errorCode != NC_NOERR)
+      {
+      continue;
+      }
 
     // Make sure that the coordinate variables have the same dimensions and that
     // those dimensions are the same as the last two dimensions on the grid.
     // Not sure if that is enforced by the specification, but I am going to make
     // that assumption.
     int numDims;
-    CALL_NETCDF_GW(nc_inq_varndims(ncFD, auxCoordVarId, &numDims));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF_GW(nc_inq_varndims(ncFD, auxCoordVarId, &numDims));
+      }
+    controller->Broadcast(&numDims, 1, 0);
+
     // I am only supporting either 1 or 2 dimensions in the coordinate
     // variables.  See the comment below regarding identifying the
     // CellsUnstructured flag.
     if (numDims > 2) continue;
 
     int auxCoordDims[2];
-    CALL_NETCDF_GW(nc_inq_vardimid(ncFD, auxCoordVarId, auxCoordDims));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF_GW(nc_inq_vardimid(ncFD, auxCoordVarId, auxCoordDims));
+      }
+    controller->Broadcast(auxCoordDims, 2, 0);
     int *gridDims = this->GridDimensions->GetPointer(numGridDimensions-numDims);
     bool auxCoordDimsValid = true;
     for (int dimId = 0; dimId < numDims; dimId++)
@@ -496,7 +584,11 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
     // dimensions.  The first numAuxCoordDims should be the same as the coord
     // arrays.  The last dimension has the number of vertices in each cell.
     // Maybe I should check this, but I'm not.
-    CALL_NETCDF_GW(nc_inq_varid(ncFD, bounds.c_str(), &longitudeBoundsVarId));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF_GW(nc_inq_varid(ncFD, bounds.c_str(), &longitudeBoundsVarId));
+      }
+    controller->Broadcast(&longitudeBoundsVarId, 1, 0);
     this->SpecialVariables->InsertNextValue(bounds);
     }
   if (ReadTextAttribute(ncFD, latitudeCoordVarId, "bounds", bounds))
@@ -505,7 +597,11 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadMetaData(
     // dimensions.  The first numAuxCoordDims should be the same as the coord
     // arrays.  The last dimension has the number of vertices in each cell.
     // Maybe I should check this, but I'm not.
-    CALL_NETCDF_GW(nc_inq_varid(ncFD, bounds.c_str(), &latitudeBoundsVarId));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF_GW(nc_inq_varid(ncFD, bounds.c_str(), &latitudeBoundsVarId));
+      }
+    controller->Broadcast(&latitudeBoundsVarId, 1, 0);
     this->SpecialVariables->InsertNextValue(bounds);
     }
 
@@ -566,18 +662,30 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadCoordinateVariable(
                                                          int ncFD, int varId,
                                                          vtkDoubleArray *coords)
 {
-  int dimIds[2];
-  CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
 
-  size_t dimSizes[2];
-  for (int i = 0; i < 2; i++)
+  unsigned long tmp[2];
+  if(controller->GetLocalProcessId() == 0)
     {
-    CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+    int dimIds[2];
+    CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+    size_t dimSizes[2];
+    for (int i = 0; i < 2; i++)
+      {
+      CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+      }
+    tmp[0] = dimSizes[0]; tmp[1] = dimSizes[1];
     }
+  controller->Broadcast(tmp, 2, 0);
 
-  coords->SetNumberOfComponents(static_cast<int>(dimSizes[1]));
-  coords->SetNumberOfTuples(static_cast<vtkIdType>(dimSizes[0]));
-  CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, coords->GetPointer(0)));
+  coords->SetNumberOfComponents(static_cast<int>(tmp[1]));
+  coords->SetNumberOfTuples(static_cast<vtkIdType>(tmp[0]));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, coords->GetPointer(0)));
+    }
+  controller->Broadcast(coords->GetPointer(0), coords->GetSize(), 0);
 
   return 1;
 }
@@ -587,14 +695,24 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadBoundsVariable(
                                                          int ncFD, int varId,
                                                          vtkDoubleArray *coords)
 {
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
   int dimIds[3];
-  CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+    }
+  controller->Broadcast(dimIds, 3, 0);
 
   size_t dimSizes[3];
-  for (int i = 0; i < 3; i++)
+  if(controller->GetLocalProcessId() == 0)
     {
-    CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+    for (int i = 0; i < 3; i++)
+      {
+      CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+      }
     }
+  controller->Broadcast(dimSizes, 3, 0);
 
   if (dimSizes[2] != 4)
     {
@@ -608,7 +726,11 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadBoundsVariable(
   // connect to the cell in the -i topological direction.  Tuple entries 0 and 3
   // connect to the cell in the -j topological direction.
   vtkstd::vector<double> boundsData(dimSizes[0]*dimSizes[1]*4);
-  CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, &boundsData.at(0)));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, &boundsData.at(0)));
+    }
+  controller->Broadcast(&boundsData.at(0), boundsData.size(), 0);
 
   // The coords array are the coords at the points.  There is one more point
   // than cell in each topological direction.
@@ -644,21 +766,35 @@ int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadBoundsVariable(
 int vtkNetCDFCFReader::vtkDependentDimensionInfo::LoadUnstructuredBoundsVariable(
                                     int ncFD, int varId, vtkDoubleArray *coords)
 {
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
   int dimIds[2];
-  CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_inq_vardimid(ncFD, varId, dimIds));
+    }
+  controller->Broadcast(dimIds, 2, 0);
 
   size_t dimSizes[2];
-  for (int i = 0; i < 2; i++)
+  if(controller->GetLocalProcessId() == 0)
     {
-    CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+    for (int i = 0; i < 2; i++)
+      {
+      CALL_NETCDF_GW(nc_inq_dimlen(ncFD, dimIds[i], &dimSizes[i]));
+      }
     }
+  controller->Broadcast(dimSizes, 2, 0);
 
   int numVertPerCell = static_cast<int>(dimSizes[1]);
   vtkIdType numCells = static_cast<vtkIdType>(dimSizes[0]);
 
   coords->SetNumberOfComponents(numVertPerCell);
   coords->SetNumberOfTuples(numCells);
-  CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, coords->GetPointer(0)));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF_GW(nc_get_var_double(ncFD, varId, coords->GetPointer(0)));
+    }
+  controller->Broadcast(coords->GetPointer(0), coords->GetSize(), 0);
 
   return 1;
 }
@@ -706,11 +842,21 @@ int vtkNetCDFCFReader::CanReadFile(const char *filename)
 {
   // We really just read basic arrays from netCDF files.  If the netCDF library
   // says we can read it, then we can read it.
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
   int ncFD;
-  int errorcode = nc_open(filename, NC_NOWRITE, &ncFD);
+  int errorcode = 0;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    errorcode = nc_open(filename, NC_NOWRITE, &ncFD);
+    if (errorcode == NC_NOERR)
+      {
+      nc_close(ncFD);
+      }
+    }
+  controller->Broadcast(&errorcode, 1, 0);
   if (errorcode == NC_NOERR)
     {
-    nc_close(ncFD);
     return 1;
     }
   else
@@ -752,6 +898,9 @@ int vtkNetCDFCFReader::RequestDataObject(
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
   vtkDataObject *output = vtkDataObject::GetData(outInfo);
 
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
+
   // This is really too early to know the appropriate data type.  We need to
   // have meta data and let the user select arrays.  We have to do part
   // of the RequestInformation to get the appropriate meta data.
@@ -761,7 +910,7 @@ int vtkNetCDFCFReader::RequestDataObject(
   // -1.
   int dataType = this->OutputType;
 
-  int ncFD;
+  int ncFD = -1;
   CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &ncFD));
 
   int numArrays = this->VariableArraySelection->GetNumberOfArrays();
@@ -771,16 +920,29 @@ int vtkNetCDFCFReader::RequestDataObject(
 
     const char *name = this->VariableArraySelection->GetArrayName(arrayIndex);
     int varId;
-    CALL_NETCDF(nc_inq_varid(ncFD, name, &varId));
-
     int currentNumDims;
-    CALL_NETCDF(nc_inq_varndims(ncFD, varId, &currentNumDims));
+    int tmp[2];
+    vtkMultiProcessStream stream;
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF(nc_inq_varid(ncFD, name, &varId));
+      CALL_NETCDF(nc_inq_varndims(ncFD, varId, &currentNumDims));
+      tmp[0] = varId; tmp[1] = currentNumDims;
+      }
+    controller->Broadcast(tmp, 2, 0);
+    varId = tmp[0];
+    currentNumDims = tmp[1];
+
     if (currentNumDims < 1) continue;
     VTK_CREATE(vtkIntArray, currentDimensions);
     currentDimensions->SetNumberOfComponents(1);
     currentDimensions->SetNumberOfTuples(currentNumDims);
-    CALL_NETCDF(nc_inq_vardimid(ncFD, varId,
-                                currentDimensions->GetPointer(0)));
+    if(controller->GetLocalProcessId() == 0)
+      {
+      CALL_NETCDF(nc_inq_vardimid(ncFD, varId,
+                                  currentDimensions->GetPointer(0)));
+      }
+    controller->Broadcast(currentDimensions->GetPointer(0), currentDimensions->GetSize(), 0);
 
     // Remove initial time dimension, which has no effect on data type.
     if (this->IsTimeDimension(ncFD, currentDimensions->GetValue(0)))
@@ -1727,8 +1889,14 @@ int vtkNetCDFCFReader::ReadMetaData(int ncFD)
 {
   vtkDebugMacro("ReadMetaData");
 
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
   int numDimensions;
-  CALL_NETCDF(nc_inq_ndims(ncFD, &numDimensions));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF(nc_inq_ndims(ncFD, &numDimensions));
+    }
+  controller->Broadcast(&numDimensions, 1, 0);
   this->DimensionInfo->v.resize(numDimensions);
 
   vtkstd::set<vtkStdString> specialVariables;
@@ -1747,7 +1915,11 @@ int vtkNetCDFCFReader::ReadMetaData(int ncFD)
     }
 
   int numVariables;
-  CALL_NETCDF(nc_inq_nvars(ncFD, &numVariables));
+  if(controller->GetLocalProcessId() == 0)
+    {
+    CALL_NETCDF(nc_inq_nvars(ncFD, &numVariables));
+    }
+  controller->Broadcast(&numVariables, 1, 0);
 
   // Check all variables for special 2D coordinates.
   for (int i = 0; i < numVariables; i++)
@@ -1783,10 +1955,22 @@ int vtkNetCDFCFReader::ReadMetaData(int ncFD)
     variablesToRemove.insert(this->VariableArraySelection->GetArrayName(i));
     }
 
+  vtkMultiProcessStream stream;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    for (int i = 0; i < numVariables; i++)
+      {
+      char name[NC_MAX_NAME+1];
+      CALL_NETCDF(nc_inq_varname(ncFD, i, name));
+      stream << name;
+      }
+    }
+  controller->Broadcast(stream, 0);
+
   for (int i = 0; i < numVariables; i++)
     {
-    char name[NC_MAX_NAME+1];
-    CALL_NETCDF(nc_inq_varname(ncFD, i, name));
+    std::string name;
+    stream >> name;
     if (specialVariables.find(name) == specialVariables.end())
       {
       if (variablesToRemove.find(name) == variablesToRemove.end())
