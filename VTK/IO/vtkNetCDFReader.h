@@ -35,13 +35,12 @@
 #include "vtkDataObjectAlgorithm.h"
 
 #include "vtkSmartPointer.h"    // For ivars
-
+#include <string> // For ivars
 
 class vtkDataArraySelection;
 class vtkDataSet;
 class vtkDoubleArray;
 class vtkIntArray;
-class vtkStdString;
 class vtkStringArray;
 
 class VTK_IO_EXPORT vtkNetCDFReader : public vtkDataObjectAlgorithm
@@ -162,14 +161,14 @@ protected:
   // Description:
   // Convenience function for getting a string that describes a set of
   // dimensions.
-  vtkStdString DescribeDimensions(int ncFD, const int *dimIds, int numDims);
+  std::string DescribeDimensions(int ncFD, const int *dimIds, int numDims);
 
   // Description:
   // Reads meta data and populates ivars.  Returns 1 on success, 0 on failure.
   virtual int ReadMetaData(int ncFD);
 
   // Description:
-  // Fills the VariableDimensions array.
+  // Fills the VariableDimensions and AllDimensions arrays.
   virtual int FillVariableDimensions(int ncFD);
 
   // Description:
@@ -212,9 +211,33 @@ protected:
   virtual int LoadVariable(int ncFD, const char *varName, double time,
                            vtkDataSet *output);
 
+  // Description:
+  // Get the NetCDF file descriptor which is used to access a file's
+  // contents.
+  vtkGetMacro(NetCDFFileDescriptor, int);
+
+  // Description:
+  // Get the NetCDF file descriptor. This checks if FileName matches
+  // OpenedFileName. Returns true if successful.
+  bool GetNetCDFFileDescriptor(int& ncFD);
+
+  // Description:
+  // Get the time values if they exist and compute wholeExtent and
+  // loadingDimensions. Return 0 if unsuccessful.
+  virtual int RequestInformationHelper(vtkDoubleArray* timeValues, int wholeExtent[6],
+                                       vtkIntArray* loadingDimensions);
+
 private:
   vtkNetCDFReader(const vtkNetCDFReader &);     // Not implemented
   void operator=(const vtkNetCDFReader &);      // Not implemented
+
+  // Description:
+  // The descriptor for accessing a NetCDF's file contents.
+  int NetCDFFileDescriptor;
+
+  // Description:
+  // The name of the currently opened NetCDF file.
+  std::string OpenedFileName;
 };
 
 #endif //__vtkNetCDFReader_h

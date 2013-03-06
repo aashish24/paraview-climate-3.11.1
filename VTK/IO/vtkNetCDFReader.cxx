@@ -105,6 +105,8 @@ vtkNetCDFReader::vtkNetCDFReader()
   this->WholeExtent[0] = this->WholeExtent[1]
     = this->WholeExtent[2] = this->WholeExtent[3]
     = this->WholeExtent[4] = this->WholeExtent[5] = 0;
+
+  this->NetCDFFileDescriptor = -1;
 }
 
 vtkNetCDFReader::~vtkNetCDFReader()
@@ -112,6 +114,14 @@ vtkNetCDFReader::~vtkNetCDFReader()
   this->SetFileName(NULL);
   this->VariableDimensions->Delete();
   this->AllDimensions->Delete();
+  if(this->OpenedFileName.empty() == false)
+    {
+    int errorcode = nc_close(this->NetCDFFileDescriptor);
+    if(errorcode != NC_NOERR)
+      {
+      cerr << "vtkNetCDFReader: Can't close file in destructor\n";
+      }
+    }
 }
 
 void vtkNetCDFReader::PrintSelf(ostream &os, vtkIndent indent)
@@ -160,101 +170,11 @@ int vtkNetCDFReader::RequestInformation(
 
   vtkInformation *outInfo = outputVector->GetInformationObject(0);
 
-  int ncFD;
-  CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &ncFD));
-
   VTK_CREATE(vtkDoubleArray, timeValues);
-  VTK_CREATE(vtkIntArray, currentDimensions);
-  this->LoadingDimensions->Initialize();
-  int numArrays = this->VariableArraySelection->GetNumberOfArrays();
-  int numDims = 0;
-  for (int arrayIndex = 0; arrayIndex < numArrays; arrayIndex++)
-    {
-    if (!this->VariableArraySelection->GetArraySetting(arrayIndex)) continue;
 
-    const char *name = this->VariableArraySelection->GetArrayName(arrayIndex);
-    int varId;
-    CALL_NETCDF(nc_inq_varid(ncFD, name, &varId));
+  this->RequestInformationHelper(timeValues, this->WholeExtent,
+                                 this->LoadingDimensions);
 
-    int currentNumDims;
-    CALL_NETCDF(nc_inq_varndims(ncFD, varId, &currentNumDims));
-    if (currentNumDims < 1) continue;
-    currentDimensions->SetNumberOfComponents(1);
-    currentDimensions->SetNumberOfTuples(currentNumDims);
-    CALL_NETCDF(nc_inq_vardimid(ncFD, varId,
-                                currentDimensions->GetPointer(0)));
-
-    // Assumption: time dimension is first.
-    int timeDim = currentDimensions->GetValue(0);       // Not determined yet.
-    if (this->IsTimeDimension(ncFD, timeDim))
-      {
-      // Get time step information.
-      VTK_CREATE(vtkDoubleArray, compositeTimeValues);
-      vtkSmartPointer<vtkDoubleArray> currentTimeValues
-        = this->GetTimeValues(ncFD, timeDim);
-      double *oldTime = timeValues->GetPointer(0);
-      double *newTime = currentTimeValues->GetPointer(0);
-      double *oldTimeEnd = oldTime + timeValues->GetNumberOfTuples();
-      double *newTimeEnd = newTime + currentTimeValues->GetNumberOfTuples();
-      compositeTimeValues->Allocate(  timeValues->GetNumberOfTuples()
-                                    + currentTimeValues->GetNumberOfTuples());
-      compositeTimeValues->SetNumberOfComponents(1);
-      while ((oldTime < oldTimeEnd) || (newTime < newTimeEnd))
-        {
-        if (   (newTime >= newTimeEnd)
-            || ((oldTime < oldTimeEnd) && (*oldTime < *newTime)) )
-          {
-          compositeTimeValues->InsertNextTuple1(*oldTime);
-          oldTime++;
-          }
-        else if ((oldTime >= oldTimeEnd) || (*newTime < *oldTime))
-          {
-          compositeTimeValues->InsertNextTuple1(*newTime);
-          newTime++;
-          }
-        else // *oldTime == *newTime
-          {
-          compositeTimeValues->InsertNextTuple1(*oldTime);
-          oldTime++;  newTime++;
-          }
-        }
-      timeValues = compositeTimeValues;
-
-      // Strip off time dimension from what we load (we will use it to
-      // subset instead).
-      currentDimensions->RemoveTuple(0);
-      currentNumDims--;
-      }
-
-    // Remember the first variable we encounter.  Use it to determine extents
-    // (below).
-    if (numDims == 0)
-      {
-      numDims = currentNumDims;
-      this->LoadingDimensions->DeepCopy(currentDimensions);
-      }
-    }
-
-  // Capture the extent information from this->LoadingDimensions.
-  bool pointData = this->DimensionsAreForPointData(this->LoadingDimensions);
-  for (int i = 0 ; i < 3; i++)
-    {
-    this->WholeExtent[2*i] = 0;
-    if (i < this->LoadingDimensions->GetNumberOfTuples())
-      {
-      size_t dimlength;
-      // Remember that netCDF arrays are indexed backward from VTK images.
-      int dim = this->LoadingDimensions->GetValue(numDims-i-1);
-      CALL_NETCDF(nc_inq_dimlen(ncFD, dim, &dimlength));
-      this->WholeExtent[2*i+1] = static_cast<int>(dimlength-1);
-      // For cell data, add one to the extent (which is for points).
-      if (!pointData) this->WholeExtent[2*i+1]++;
-      }
-    else
-      {
-      this->WholeExtent[2*i+1] = 0;
-      }
-    }
   vtkDebugMacro(<< "Whole extents: "
                 << this->WholeExtent[0] << ", " << this->WholeExtent[1] <<", "
                 << this->WholeExtent[2] << ", " << this->WholeExtent[3] <<", "
@@ -269,7 +189,7 @@ int vtkNetCDFReader::RequestInformation(
     }
 
   // If we have time, report that.
-  if (timeValues && (timeValues->GetNumberOfTuples() > 0))
+  if (timeValues->GetNumberOfTuples() > 0)
     {
     outInfo->Set(vtkStreamingDemandDrivenPipeline::TIME_STEPS(),
                  timeValues->GetPointer(0),
@@ -284,8 +204,6 @@ int vtkNetCDFReader::RequestInformation(
     outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_STEPS());
     outInfo->Remove(vtkStreamingDemandDrivenPipeline::TIME_RANGE());
     }
-
-  CALL_NETCDF(nc_close(ncFD));
 
   return 1;
 }
@@ -335,20 +253,27 @@ int vtkNetCDFReader::RequestData(vtkInformation *vtkNotUsed(request),
     }
 
   int ncFD;
-  CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &ncFD));
+  if(this->GetNetCDFFileDescriptor(ncFD) == false)
+    {
+    return 0;
+    }
 
   // Iterate over arrays and load selected ones.
   int numArrays = this->VariableArraySelection->GetNumberOfArrays();
   for (int arrayIndex = 0; arrayIndex < numArrays; arrayIndex++)
     {
-    if (!this->VariableArraySelection->GetArraySetting(arrayIndex)) continue;
+    if (!this->VariableArraySelection->GetArraySetting(arrayIndex))
+      {
+      continue;
+      }
 
     const char *name = this->VariableArraySelection->GetArrayName(arrayIndex);
 
-    if (!this->LoadVariable(ncFD, name, time, output)) return 0;
+    if (!this->LoadVariable(ncFD, name, time, output))
+      {
+      return 0;
+      }
     }
-
-  CALL_NETCDF(nc_close(ncFD));
 
   return 1;
 }
@@ -458,15 +383,21 @@ int vtkNetCDFReader::UpdateMetaData()
       }
 
     int ncFD;
-    CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &ncFD));
+    if(this->GetNetCDFFileDescriptor(ncFD) == false)
+      {
+      return 0;
+      }
 
     int retval = this->ReadMetaData(ncFD);
 
-    if (retval) retval = this->FillVariableDimensions(ncFD);
-
-    if (retval) this->MetaDataMTime.Modified();
-
-    CALL_NETCDF(nc_close(ncFD));
+    if (retval)
+      {
+      retval = this->FillVariableDimensions(ncFD);
+      }
+    if (retval)
+      {
+      this->MetaDataMTime.Modified();
+      }
 
     return retval;
     }
@@ -477,15 +408,18 @@ int vtkNetCDFReader::UpdateMetaData()
 }
 
 //-----------------------------------------------------------------------------
-vtkStdString vtkNetCDFReader::DescribeDimensions(int ncFD,
+std::string vtkNetCDFReader::DescribeDimensions(int ncFD,
                                                  const int *dimIds, int numDims)
 {
-  vtkStdString description;
+  std::string description;
   for (int i = 0; i < numDims; i++)
     {
     char name[NC_MAX_NAME+1];
     CALL_NETCDF(nc_inq_dimname(ncFD, dimIds[i], name));
-    if (i > 0) description += " ";
+    if (i > 0)
+      {
+      description += " ";
+      }
     description += name;
     }
   return description;
@@ -499,7 +433,7 @@ int vtkNetCDFReader::ReadMetaData(int ncFD)
   // Look at all variables and record them so that the user can select which
   // ones he wants.  This oddness of adding and removing from
   // VariableArraySelection is to preserve any current settings for variables.
-  typedef vtkstd::set<vtkStdString> stringSet;
+  typedef vtkstd::set<std::string> stringSet;
   stringSet variablesToAdd;
   stringSet variablesToRemove;
 
@@ -561,13 +495,19 @@ int vtkNetCDFReader::FillVariableDimensions(int ncFD)
     CALL_NETCDF(nc_inq_varid(ncFD, varName, &varId));
     CALL_NETCDF(nc_inq_varndims(ncFD, varId, &numDim));
     CALL_NETCDF(nc_inq_vardimid(ncFD, varId, dimIds));
-    vtkStdString dimEncoding("(");
+    std::string dimEncoding("(");
     for (int j = 0; j < numDim; j++)
       {
-      if ((j == 0) && (this->IsTimeDimension(ncFD, dimIds[j]))) continue;
+      if ((j == 0) && (this->IsTimeDimension(ncFD, dimIds[j])))
+        {
+        continue;
+        }
       char dimName[NC_MAX_NAME+1];
       CALL_NETCDF(nc_inq_dimname(ncFD, dimIds[j], dimName));
-      if (dimEncoding.size() > 1) dimEncoding += ", ";
+      if (dimEncoding.size() > 1)
+        {
+        dimEncoding += ", ";
+        }
       dimEncoding += dimName;
       }
     dimEncoding += ")";
@@ -583,7 +523,10 @@ int vtkNetCDFReader::FillVariableDimensions(int ncFD)
         break;
         }
       }
-    if (unique) this->AllDimensions->InsertNextValue(dimEncoding);
+    if (unique)
+      {
+      this->AllDimensions->InsertNextValue(dimEncoding);
+      }
     }
 
   return 1;
@@ -805,3 +748,133 @@ int vtkNetCDFReader::LoadVariable(int ncFD, const char *varName, double time,
   return 1;
 }
 
+//-----------------------------------------------------------------------------
+bool vtkNetCDFReader::GetNetCDFFileDescriptor(int& ncFD)
+{
+  if(this->FileName == NULL)
+    {
+    return false;
+    }
+  if(this->OpenedFileName == this->FileName)
+    {
+    ncFD = this->NetCDFFileDescriptor;
+    return true;
+    }
+  if(this->OpenedFileName.empty() == false)
+    {
+    CALL_NETCDF(nc_close(this->NetCDFFileDescriptor));
+    this->OpenedFileName.clear();
+    }
+  // if nc_open fails then it will return 0
+  CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &this->NetCDFFileDescriptor));
+  ncFD = this->NetCDFFileDescriptor;
+  this->OpenedFileName = this->FileName;
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+int vtkNetCDFReader::RequestInformationHelper(
+  vtkDoubleArray* timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
+{
+  int ncFD;
+  if(this->GetNetCDFFileDescriptor(ncFD) == false)
+    {
+    return 0;
+    }
+
+  loadingDimensions->Initialize();
+  VTK_CREATE(vtkIntArray, currentDimensions);
+  int numArrays = this->VariableArraySelection->GetNumberOfArrays();
+  int numDims = 0;
+  for (int arrayIndex = 0; arrayIndex < numArrays; arrayIndex++)
+    {
+    if (!this->VariableArraySelection->GetArraySetting(arrayIndex)) continue;
+
+    const char *name = this->VariableArraySelection->GetArrayName(arrayIndex);
+    int varId;
+    CALL_NETCDF(nc_inq_varid(ncFD, name, &varId));
+
+    int currentNumDims;
+    CALL_NETCDF(nc_inq_varndims(ncFD, varId, &currentNumDims));
+    if (currentNumDims < 1) continue;
+    currentDimensions->SetNumberOfComponents(1);
+    currentDimensions->SetNumberOfTuples(currentNumDims);
+    CALL_NETCDF(nc_inq_vardimid(ncFD, varId,
+                                currentDimensions->GetPointer(0)));
+
+    // Assumption: time dimension is first.
+    int timeDim = currentDimensions->GetValue(0);       // Not determined yet.
+    if (this->IsTimeDimension(ncFD, timeDim))
+      {
+      // Get time step information.
+      VTK_CREATE(vtkDoubleArray, compositeTimeValues);
+      vtkSmartPointer<vtkDoubleArray> currentTimeValues
+        = this->GetTimeValues(ncFD, timeDim);
+      double *oldTime = timeValues->GetPointer(0);
+      double *newTime = currentTimeValues->GetPointer(0);
+      double *oldTimeEnd = oldTime + timeValues->GetNumberOfTuples();
+      double *newTimeEnd = newTime + currentTimeValues->GetNumberOfTuples();
+      compositeTimeValues->Allocate(  timeValues->GetNumberOfTuples()
+                                    + currentTimeValues->GetNumberOfTuples());
+      compositeTimeValues->SetNumberOfComponents(1);
+      while ((oldTime < oldTimeEnd) || (newTime < newTimeEnd))
+        {
+        if (   (newTime >= newTimeEnd)
+            || ((oldTime < oldTimeEnd) && (*oldTime < *newTime)) )
+          {
+          compositeTimeValues->InsertNextTuple1(*oldTime);
+          oldTime++;
+          }
+        else if ((oldTime >= oldTimeEnd) || (*newTime < *oldTime))
+          {
+          compositeTimeValues->InsertNextTuple1(*newTime);
+          newTime++;
+          }
+        else // *oldTime == *newTime
+          {
+          compositeTimeValues->InsertNextTuple1(*oldTime);
+          oldTime++;  newTime++;
+          }
+        }
+      timeValues = compositeTimeValues;
+
+      // Strip off time dimension from what we load (we will use it to
+      // subset instead).
+      currentDimensions->RemoveTuple(0);
+      currentNumDims--;
+      }
+
+    // Remember the first variable we encounter.  Use it to determine extents
+    // (below).
+    if (numDims == 0)
+      {
+      numDims = currentNumDims;
+      loadingDimensions->DeepCopy(currentDimensions);
+      }
+    }
+
+  // Capture the extent information from loadingDimensions.
+  bool pointData = this->DimensionsAreForPointData(loadingDimensions);
+  for (int i = 0 ; i < 3; i++)
+    {
+    wholeExtent[2*i] = 0;
+    if (i < loadingDimensions->GetNumberOfTuples())
+      {
+      size_t dimlength;
+      // Remember that netCDF arrays are indexed backward from VTK images.
+      int dim = loadingDimensions->GetValue(numDims-i-1);
+      CALL_NETCDF(nc_inq_dimlen(ncFD, dim, &dimlength));
+      wholeExtent[2*i+1] = static_cast<int>(dimlength-1);
+      // For cell data, add one to the extent (which is for points).
+      if (!pointData)
+        {
+        wholeExtent[2*i+1]++;
+        }
+      }
+    else
+      {
+      wholeExtent[2*i+1] = 0;
+      }
+    }
+  return 1;
+}

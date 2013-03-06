@@ -159,6 +159,7 @@ vtkNetCDFCFReader::vtkDimensionInfo::vtkDimensionInfo(int ncFD, int id)
   this->LoadMetaData(ncFD);
 }
 
+//=============================================================================
 int vtkNetCDFCFReader::vtkDimensionInfo::LoadMetaData(int ncFD)
 {
   this->Units = UNDEFINED_UNITS;
@@ -844,10 +845,10 @@ int vtkNetCDFCFReader::CanReadFile(const char *filename)
   // says we can read it, then we can read it.
   vtkMultiProcessController* controller =
     vtkMultiProcessController::GetGlobalController();
-  int ncFD;
   int errorcode = 0;
   if(controller->GetLocalProcessId() == 0)
     {
+    int ncFD;
     errorcode = nc_open(filename, NC_NOWRITE, &ncFD);
     if (errorcode == NC_NOERR)
       {
@@ -910,8 +911,11 @@ int vtkNetCDFCFReader::RequestDataObject(
   // -1.
   int dataType = this->OutputType;
 
-  int ncFD = -1;
-  CALL_NETCDF(nc_open(this->FileName, NC_NOWRITE, &ncFD));
+  int ncFD;
+  if(this->GetNetCDFFileDescriptor(ncFD) == false)
+    {
+    return 0;
+    }
 
   int numArrays = this->VariableArraySelection->GetNumberOfArrays();
   for (int arrayIndex = 0; arrayIndex < numArrays; arrayIndex++)
@@ -1882,6 +1886,85 @@ void vtkNetCDFCFReader::AddUnstructuredSphericalCoordinates(
     cartesianCoord[2] = height*sin(lat);
     points->SetPoint(pointId, cartesianCoord);
     }
+}
+
+//-----------------------------------------------------------------------------
+int vtkNetCDFCFReader::RequestInformationHelper(
+  vtkDoubleArray* timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
+{
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
+  int retVal = 0;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    retVal = this->Superclass::RequestInformationHelper(timeValues, wholeExtent,
+                                                        loadingDimensions);
+    }
+  controller->Broadcast(&retVal, 1, 0);
+  if(retVal == 0)
+    {
+    return 0;
+    }
+  controller->Broadcast(timeValues, 0);
+  controller->Broadcast(wholeExtent, 6, 0);
+  controller->Broadcast(loadingDimensions, 0);
+  return 1;
+}
+
+//-----------------------------------------------------------------------------
+int vtkNetCDFCFReader::FillVariableDimensions(int ncFD)
+{
+  vtkMultiProcessController* controller =
+    vtkMultiProcessController::GetGlobalController();
+  int retVal = 0;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    retVal = this->Superclass::FillVariableDimensions(ncFD);
+    if(controller->GetNumberOfProcesses() == 0)
+      { // quick return if there's only a single process
+      return retVal;
+      }
+    }
+  controller->Broadcast(&retVal, 1, 0);
+  if(retVal == 0)
+    {
+    return 0;
+    }
+  vtkMultiProcessStream data;
+  if(controller->GetLocalProcessId() == 0)
+    {
+    data << this->VariableDimensions->GetNumberOfValues();
+    for(vtkIdType i=0;i<this->VariableDimensions->GetNumberOfValues();i++)
+      {
+      data << this->VariableDimensions->GetValue(i);
+      }
+    data << this->AllDimensions->GetNumberOfValues();
+    for(vtkIdType i=0;i<this->AllDimensions->GetNumberOfValues();i++)
+      {
+      data << this->AllDimensions->GetValue(i);
+      }
+    }
+  controller->Broadcast(data, 0);
+  if(controller->GetLocalProcessId() != 0)
+    {
+    vtkIdType numValues;
+    data >> numValues;
+    std::string value;
+    this->VariableDimensions->SetNumberOfValues(numValues);
+    for(vtkIdType i=0;i<numValues;i++)
+      {
+      data >> value;
+      this->VariableDimensions->SetValue(i, value);
+      }
+    data >> numValues;
+    this->AllDimensions->SetNumberOfValues(numValues);
+    for(vtkIdType i=0;i<numValues;i++)
+      {
+      data >> value;
+      this->AllDimensions->SetValue(i, value);
+      }
+    }
+  return retVal;
 }
 
 //-----------------------------------------------------------------------------
