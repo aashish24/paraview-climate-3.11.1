@@ -46,6 +46,7 @@ vtkExtractPolyDataPiece.cxx
 vtkExtractUnstructuredGridPiece.cxx
 vtkExtractUserDefinedPiece.cxx
 vtkMPIImageReader.cxx
+vtkNetCDFCFReader.cxx
 vtkMultiProcessController.cxx
 vtkMultiProcessStream.cxx
 vtkParallelFactory.cxx
