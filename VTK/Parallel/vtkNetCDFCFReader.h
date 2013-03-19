@@ -41,7 +41,7 @@ class vtkRectilinearGrid;
 class vtkStructuredGrid;
 class vtkUnstructuredGrid;
 
-class VTK_IO_EXPORT vtkNetCDFCFReader : public vtkNetCDFReader
+class VTK_PARALLEL_EXPORT vtkNetCDFCFReader : public vtkNetCDFReader
 {
 public:
   vtkTypeMacro(vtkNetCDFCFReader, vtkNetCDFReader);
@@ -285,6 +285,15 @@ protected:
                                         vtkUnstructuredGrid *unstructuredOutput,
                                         const int extent[6]);
 
+  // Description:
+  // Get the time values if they exist and compute wholeExtent and
+  // loadingDimensions. Return 0 if unsuccessful.
+  virtual int RequestInformationHelper(vtkDoubleArray* timeValues, int wholeExtent[6],
+                                       vtkIntArray* loadingDimensions);
+
+  // Description:
+  // Fills the VariableDimensions and AllDimensions arrays.
+  virtual int FillVariableDimensions(int ncFD);
 
 private:
   vtkNetCDFCFReader(const vtkNetCDFCFReader &); // Not implemented
