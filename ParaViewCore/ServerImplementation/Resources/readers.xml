@@ -1,6 +1,39 @@
 <ServerManagerConfiguration>
 
   <ProxyGroup name="internal_sources">
+  <SourceProxy name="MOCReaderCore" class="vtkMOCReader">
+    <Documentation>
+      Reader for POP raw data files that outputs the MOC computation.
+    </Documentation>
+
+    <StringVectorProperty name="FileName"
+                          command="SetFileName"
+                          number_of_elements="1">
+      <FileListDomain name="files"/>
+    </StringVectorProperty>
+
+    <Hints>
+      <ReaderFactory extensions="moc mht" file_description="MOC file"/>
+    </Hints>
+
+   </SourceProxy>
+
+   <SourceProxy name="MHTReaderCore" class="vtkMHTReader">
+     <Documentation>
+       Reader for POP raw data files that outputs the MHT computation.
+     </Documentation>
+    <StringVectorProperty name="FileName"
+                          command="SetFileName"
+                          number_of_elements="1">
+      <FileListDomain name="files"/>
+    </StringVectorProperty>
+
+    <Hints>
+      <ReaderFactory extensions="moc mht" file_description="MHT file"/>
+    </Hints>
+
+   </SourceProxy>
+
    <SourceProxy name="AVSucdReader"
                 class="vtkAVSucdReader"
                 label="AVS UCD Reader">
@@ -7331,38 +7364,115 @@
    <!-- End plot3d reader-->
  </SourceProxy>
 
-  <SourceProxy name="MOCReader" class="vtkMOCReader">
-    <Documentation>
-      Reader for POP raw data files that outputs the MOC computation.
-    </Documentation>
+ <SourceProxy name="MOCReader"
+              class="vtkFileSeriesReader"
+              label="MOC File Series Reader"
+              si_class="vtkSIFileSeriesReaderProxy"
+              file_name_method="SetFileName">
+   <Documentation
+       short_help="Read a series of POP files and process the MOC."
+       long_help="Reads a series of POP files and process the MOC.">
+     Read a series of POP raw data files and output the meridional overturning circulation. The file extension is .moc or .mht
+   </Documentation>
 
-    <StringVectorProperty name="FileName"
-                          command="SetFileName"
-                          number_of_elements="1">
-      <FileListDomain name="files"/>
-    </StringVectorProperty>
+   <SubProxy>
+     <Proxy name="Reader"
+            proxygroup="internal_sources"
+            proxyname="MOCReaderCore">
+     </Proxy>
+   </SubProxy>
 
-    <Hints>
-      <ReaderFactory extensions="moc mht" file_description="MOC file"/>
-    </Hints>
+   <StringVectorProperty name="FileNameInfo"
+                         command="GetCurrentFileName"
+                         information_only="1" >
+     <SimpleStringInformationHelper />
+   </StringVectorProperty>
 
-   </SourceProxy>
-
-   <SourceProxy name="MHTReader" class="vtkMHTReader">
+   <StringVectorProperty name="FileNames"
+                         clean_command="RemoveAllFileNames"
+                         command="AddFileName"
+                         animateable="0"
+                         number_of_elements="1"
+                         repeat_command="1">
+     <FileListDomain name="files"/>
      <Documentation>
-       Reader for POP raw data files that outputs the MHT computation.
+       The list of files to be read by the reader. Each file is expected to be
+       in the POP raw data format. The standard extension is .moc. If more than one file is specified,
+       the reader will switch to file series mode in which it will pretend that it can support
+       time and provide one file per time step.
      </Documentation>
-    <StringVectorProperty name="FileName"
-                          command="SetFileName"
-                          number_of_elements="1">
-      <FileListDomain name="files"/>
-    </StringVectorProperty>
+   </StringVectorProperty>
 
-    <Hints>
-      <ReaderFactory extensions="moc mht" file_description="MHT file"/>
-    </Hints>
+   <DoubleVectorProperty name="TimestepValues"
+                         repeatable="1"
+                         information_only="1">
+     <TimeStepsInformationHelper/>
+     <Documentation>
+       Available timestep values.
+     </Documentation>
+   </DoubleVectorProperty>
 
-   </SourceProxy>
+   <Hints>
+     <ReaderFactory extensions="moc mht"
+                    file_description="MOC Files" />
+   </Hints>
+   <!-- end of MOC reader -->
+ </SourceProxy>
+
+ <SourceProxy name="MHTReader"
+              class="vtkFileSeriesReader"
+              label="MHT File Series Reader"
+              si_class="vtkSIFileSeriesReaderProxy"
+              file_name_method="SetFileName">
+   <Documentation
+       short_help="Read a series of POP files and process the MHT."
+       long_help="Reads a series of POP files and process the MHT.">
+     Read a series of POP raw data files and output the meridional overturning circulation. The file extension is .moc or .mht
+   </Documentation>
+
+   <SubProxy>
+     <Proxy name="Reader"
+            proxygroup="internal_sources"
+            proxyname="MHTReaderCore">
+     </Proxy>
+   </SubProxy>
+
+   <StringVectorProperty name="FileNameInfo"
+                         command="GetCurrentFileName"
+                         information_only="1" >
+     <SimpleStringInformationHelper />
+   </StringVectorProperty>
+
+   <StringVectorProperty name="FileNames"
+                         clean_command="RemoveAllFileNames"
+                         command="AddFileName"
+                         animateable="0"
+                         number_of_elements="1"
+                         repeat_command="1">
+     <FileListDomain name="files"/>
+     <Documentation>
+       The list of files to be read by the reader. Each file is expected to be
+       in the POP raw data format. The standard extension is .mht. If more than one file is specified,
+       the reader will switch to file series mode in which it will pretend that it can support
+       time and provide one file per time step.
+     </Documentation>
+   </StringVectorProperty>
+
+   <DoubleVectorProperty name="TimestepValues"
+                         repeatable="1"
+                         information_only="1">
+     <TimeStepsInformationHelper/>
+     <Documentation>
+       Available timestep values.
+     </Documentation>
+   </DoubleVectorProperty>
+
+   <Hints>
+     <ReaderFactory extensions="moc mht"
+                    file_description="MHT Files" />
+   </Hints>
+   <!-- end of MHT reader -->
+ </SourceProxy>
 
   </ProxyGroup>
 </ServerManagerConfiguration>
