@@ -7388,7 +7388,7 @@
      <SimpleStringInformationHelper />
    </StringVectorProperty>
 
-   <StringVectorProperty name="FileNames"
+   <StringVectorProperty name="FileName"
                          clean_command="RemoveAllFileNames"
                          command="AddFileName"
                          animateable="0"
@@ -7443,7 +7443,7 @@
      <SimpleStringInformationHelper />
    </StringVectorProperty>
 
-   <StringVectorProperty name="FileNames"
+   <StringVectorProperty name="FileName"
                          clean_command="RemoveAllFileNames"
                          command="AddFileName"
                          animateable="0"
