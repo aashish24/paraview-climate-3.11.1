@@ -41,6 +41,7 @@
 #include "vtkNew.h"
 #include "vtkObjectFactory.h"
 #include "vtkPointData.h"
+#include "vtkPVMultiBlockTemporalStatisticsExecutive.h"
 #include "vtkSmartPointer.h"
 #include "vtkStdString.h"
 #include "vtkStreamingDemandDrivenPipeline.h"
@@ -259,6 +260,11 @@ namespace
 //=============================================================================
 vtkMultiBlockTemporalStatistics::vtkMultiBlockTemporalStatistics()
 {
+  vtkPVMultiBlockTemporalStatisticsExecutive* exec =
+    vtkPVMultiBlockTemporalStatisticsExecutive::New();
+  this->SetExecutive(exec);
+  exec->FastDelete();
+
   this->ComputeAverage = 1;
   this->ComputeMinimum = 1;
   this->ComputeMaximum = 1;
@@ -286,6 +292,12 @@ vtkMultiBlockTemporalStatistics::~vtkMultiBlockTemporalStatistics()
     delete this->Internal;
     this->Internal = NULL;
     }
+}
+
+//----------------------------------------------------------------------------
+vtkExecutive* vtkMultiBlockTemporalStatistics::CreateDefaultExecutive()
+{
+  return vtkPVMultiBlockTemporalStatisticsExecutive::New();
 }
 
 //-----------------------------------------------------------------------------
@@ -367,6 +379,12 @@ int vtkMultiBlockTemporalStatistics::GetNumberOfTimeCompartments()
 vtkMultiProcessController* vtkMultiBlockTemporalStatistics::GetTimeCompartmentController()
 {
   return this->Internal->SubController;
+}
+
+//-----------------------------------------------------------------------------
+vtkMultiProcessController* vtkMultiBlockTemporalStatistics::GetRealGlobalController()
+{
+  return this->Internal->GlobalController;
 }
 
 //-----------------------------------------------------------------------------
