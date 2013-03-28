@@ -142,6 +142,7 @@ SET (Kit_SRCS
   vtkPVLODActor.cxx
   vtkPVLODVolume.cxx
   vtkPVMergeTables.cxx
+  vtkPVMultiBlockTemporalStatisticsExecutive.cxx
   vtkPVNullSource.cxx
   vtkPVPlane.cxx
   vtkPVPlotTime.cxx
