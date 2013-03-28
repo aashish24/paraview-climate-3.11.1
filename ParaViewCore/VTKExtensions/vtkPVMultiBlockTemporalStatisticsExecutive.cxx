@@ -41,14 +41,12 @@ int vtkPVMultiBlockTemporalStatisticsExecutive::ProcessRequest(
   vtkInformation *request, vtkInformationVector **inInfo,
   vtkInformationVector *outInfo)
 {
-  cerr << "=================vtkpvmbtse::processrequest begin\n";
   vtkMultiBlockTemporalStatistics* filter =
     vtkMultiBlockTemporalStatistics::SafeDownCast(this->GetAlgorithm());
   vtkMultiProcessController* controller = filter->GetTimeCompartmentController();
   controller->SetGlobalController(controller);
   int retVal = this->Superclass::ProcessRequest(request, inInfo, outInfo);
   controller->SetGlobalController(filter->GetRealGlobalController());
-  cerr << "=================vtkpvmbtse::processrequest end\n";
   return retVal;
 }
 
