@@ -77,6 +77,13 @@ public:
   virtual void PrintSelf(ostream &os, vtkIndent indent);
 
   // Description:
+  // We need to override this method because the PV composite data pipeline
+  // is not what we want. Instead we need the vtkPVMultiBlockTemporalStatisticsExecutive
+  // so that we can manage the global vtkMPIController that is used by
+  // filters before and after this.
+  vtkExecutive* CreateDefaultExecutive();
+
+  // Description:
   // The averages that we do may be over subsets of times. For example, we
   // may want averages for each month or each season instead of over the
   // entire time. Also, we have time and time step information but don't
@@ -182,6 +189,10 @@ public:
   // Description:
   // Each time compartment group has their own MPI subcontroller.
   vtkMultiProcessController* GetTimeCompartmentController();
+
+  // Description:
+  // Each time compartment group has their own MPI subcontroller.
+  vtkMultiProcessController* GetRealGlobalController();
 
   static vtkInformationObjectBaseKey* MPI_SUBCOMMUNICATOR();
 
