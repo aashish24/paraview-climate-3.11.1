@@ -12,24 +12,21 @@
 #include <limits>
 
 #include "vtkCellData.h"
+#include "vtkCommunicator.h"
 #include "vtkDataArray.h"
 #include "vtkFloatArray.h"
 #include "vtkExtentTranslator.h"
 #include "vtkRectilinearGrid.h"
 #include "vtkInformation.h"
 #include "vtkInformationVector.h"
+#include "vtkMultiProcessController.h"
 #include "vtkMultiProcessStream.h"
 #include "vtkNew.h"
 #include "vtkObjectFactory.h"
 #include "vtkPointData.h"
 #include "vtkPOPMatrices.h"
 #include "vtkStreamingDemandDrivenPipeline.h"
-#include "vtkFloatArray.h"
-#include "vtkMultiProcessController.h"
-#include "vtkCommunicator.h"
-
-#include "vtkNew.h"
-#include "vtkTimerLog.h"
+#include "vtksys/SystemTools.hxx"
 
 namespace
 {
@@ -183,6 +180,8 @@ int vtkAbstractPOPReader::SingleProcessParseMetaFile(
     vtkErrorMacro("Error: did not find namelist with name " << namelist_name.c_str());
     return 0;
     }
+
+  popinfo->FileNamePath = vtksys::SystemTools::GetFilenamePath(fileName);
 
   // found the right namelist, parse lines until end of namelist block
   std::stringstream line2;
@@ -700,9 +699,6 @@ int vtkAbstractPOPReader::LoadData(
   Matrix2DInt& atl_kmt1GL, Matrix2DInt& indopac_kmt1GL,
   Matrix3DFloat& u1GL, Matrix3DFloat& v1GL, int imt2GL, int jmt2GL)
 {
-  vtkNew<vtkTimerLog> timer;
-  timer->StartTimer();
-
   vtkMultiProcessController* controller =
     vtkMultiProcessController::GetGlobalController();
   // load data from disk
@@ -732,6 +728,11 @@ int vtkAbstractPOPReader::LoadData(
   if(controller->GetLocalProcessId() == 0)
     {
     FILE* f = fopen(popinfo->in_depths.c_str(), "r");
+    if(f == NULL)
+      {
+      std::string fullFileName = popinfo->FileNamePath + "/" + popinfo->in_depths;
+      f = fopen(fullFileName.c_str(), "r");
+      }
     if(f == NULL)
       {
       vtkErrorMacro("Error in opening in_depths file: " << popinfo->in_depths.c_str());
@@ -794,16 +795,13 @@ int vtkAbstractPOPReader::LoadData(
     v1GL.ByteSwap();
     }
 
-  timer->StopTimer();
-  cerr << controller->GetLocalProcessId() << " has LOADDATA time of " << timer->GetElapsedTime() << endl;
-
   return 1;
 }
 
 //-----------------------------------------------------------------------------
-int vtkAbstractPOPReader::LoadDataBlock2DDouble(POPInputInformation* popinfo, std::string filename,
-                                        int* ext3DArbitrary, int offset, int imt, int jmt,
-                                        Matrix2DDouble& data)
+int vtkAbstractPOPReader::LoadDataBlock2DDouble(
+  POPInputInformation* popinfo, std::string& filename,
+  int* ext3DArbitrary, int offset, int imt, int jmt, Matrix2DDouble& data)
 {
   // read a 2D block from a file of doubles
 
@@ -858,6 +856,11 @@ int vtkAbstractPOPReader::LoadDataBlock2DDouble(POPInputInformation* popinfo, st
   int col_length = y_end - y_start + 1;
 
   FILE* f = fopen(filename.c_str(), "rb");
+  if(f == NULL)
+    {
+    std::string fullFileName = popinfo->FileNamePath + "/" + filename;
+    f = fopen(fullFileName.c_str(), "rb");
+    }
   if(f == NULL)
     {
     vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
@@ -968,7 +971,7 @@ int vtkAbstractPOPReader::LoadDataBlock2DDouble(POPInputInformation* popinfo, st
 
 //-----------------------------------------------------------------------------
 int vtkAbstractPOPReader::LoadDataBlock2DDouble2(
-  POPInputInformation* popinfo, std::string filename, int* ext3DArbitrary,
+  POPInputInformation* popinfo, std::string& filename, int* ext3DArbitrary,
   int offset, int imt, int jmt, Matrix2DDouble& data)
 {
   // read a 2D block from a file of doubles.
@@ -1025,6 +1028,11 @@ int vtkAbstractPOPReader::LoadDataBlock2DDouble2(
   int col_length = y_end - y_start + 1;
 
   FILE* f = fopen(filename.c_str(), "rb");
+  if(f == NULL)
+    {
+    std::string fullFileName = popinfo->FileNamePath + "/" + filename;
+    f = fopen(fullFileName.c_str(), "rb");
+    }
   if(f == NULL)
     {
     vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
@@ -1158,8 +1166,9 @@ int vtkAbstractPOPReader::LoadDataBlock2DDouble2(
 }
 
 //-----------------------------------------------------------------------------
-int vtkAbstractPOPReader::LoadDataBlock2DInt(POPInputInformation* popinfo, std::string filename, int* ext3DArbitrary,
-                                     int imt, int jmt, Matrix2DInt& data)
+int vtkAbstractPOPReader::LoadDataBlock2DInt(
+  POPInputInformation* popinfo, std::string& filename, int* ext3DArbitrary,
+  int imt, int jmt, Matrix2DInt& data)
 {
   // load a 2D block of ints from a file
 
@@ -1214,6 +1223,11 @@ int vtkAbstractPOPReader::LoadDataBlock2DInt(POPInputInformation* popinfo, std::
   int col_length = y_end - y_start + 1;
 
   FILE* f = fopen(filename.c_str(), "rb");
+  if(f == NULL)
+    {
+    std::string fullFileName = popinfo->FileNamePath + "/" + filename;
+    f = fopen(fullFileName.c_str(), "rb");
+    }
   if(f == NULL)
     {
     vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
@@ -1314,9 +1328,9 @@ int vtkAbstractPOPReader::LoadDataBlock2DInt(POPInputInformation* popinfo, std::
 }
 
 //-----------------------------------------------------------------------------
-int vtkAbstractPOPReader::LoadDataBlock3DFloat(POPInputInformation* popinfo, std::string filename,
-                                       int* ext3DArbitrary, int imt, int jmt, int km,
-                                       Matrix3DFloat& data)
+int vtkAbstractPOPReader::LoadDataBlock3DFloat(
+  POPInputInformation* popinfo, std::string& filename, int* ext3DArbitrary,
+  int imt, int jmt, int km, Matrix3DFloat& data)
 {
   // load a 3D block of floats from a file
 
@@ -1371,6 +1385,11 @@ int vtkAbstractPOPReader::LoadDataBlock3DFloat(POPInputInformation* popinfo, std
   int col_length = y_end - y_start + 1;
 
   FILE* f = fopen(filename.c_str(), "rb");
+  if(f == NULL)
+    {
+    std::string fullFileName = popinfo->FileNamePath + "/" + filename;
+    f = fopen(fullFileName.c_str(), "rb");
+    }
   if(f == NULL)
     {
     vtkGenericWarningMacro("Error in opening file: " << filename.c_str());
