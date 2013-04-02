@@ -50,6 +50,7 @@ class POPInputInformation {
     this->v_file = "";
     this->uet_file = "";
     this->vnt_file = "";
+    this->FileNamePath = "";
     this->do_global = false;
     this->do_atl = false;
     this->do_indopac = false;
@@ -68,7 +69,7 @@ class POPInputInformation {
     data << this->ysouth_mht << this->ynorth_mht << this->dy_mht;
     data << this->kmt_global_file << this->kmt_atl_file << this->kmt_indopac_file;
     data << this->in_depths << this->pbc_file << this->grid_file << this->u_file << this->v_file;
-    data << this->uet_file << this->vnt_file;
+    data << this->uet_file << this->vnt_file << this->FileNamePath;
     data << static_cast<int>(this->do_global) << static_cast<int>(this->do_atl);
     data << static_cast<int>(this->do_indopac) << static_cast<int>(this->do_msf);
     data << static_cast<int>(this->do_mht) << static_cast<int>(this->use_pbc);
@@ -82,7 +83,7 @@ class POPInputInformation {
     data >> this->ysouth_mht >> this->ynorth_mht >> this->dy_mht;
     data >> this->kmt_global_file >> this->kmt_atl_file >> this->kmt_indopac_file;
     data >> this->in_depths >> this->pbc_file >> this->grid_file >> this->u_file >> this->v_file;
-    data >> this->uet_file >> this->vnt_file;
+    data >> this->uet_file >> this->vnt_file >> this->FileNamePath;
     int tmp;
     data >> tmp;
     this->do_global = static_cast<bool>(tmp);
@@ -116,6 +117,7 @@ class POPInputInformation {
   std::string v_file;               // v-velocities
   std::string uet_file;             // for MHT computation
   std::string vnt_file;             // for MHT computation
+  std::string FileNamePath;         // for filename path to the meta file
   bool do_global;              // compute global quantities
   bool do_atl;                 // compute atlantic quantities
   bool do_indopac;             // compute indian-pacific quantities
@@ -143,13 +145,13 @@ class VTK_EXPORT vtkAbstractPOPReader : public vtkRectilinearGridAlgorithm
   static int cshift(int i, int offset, int size);
 
   // Description:
-  static int LoadDataBlock2DDouble(POPInputInformation* popinfo, std::string filename, int* ext3D,
+  static int LoadDataBlock2DDouble(POPInputInformation* popinfo, std::string& filename, int* ext3D,
                                    int offset, int imt, int jmt, Matrix2DDouble& data);
-  static int LoadDataBlock2DDouble2(POPInputInformation* popinfo, std::string filename, int* ext3D,
+  static int LoadDataBlock2DDouble2(POPInputInformation* popinfo, std::string& filename, int* ext3D,
                                     int offset, int imt, int jmt,Matrix2DDouble& data);
-  static int LoadDataBlock2DInt(POPInputInformation* popinfo, std::string filename, int* ext3D,
+  static int LoadDataBlock2DInt(POPInputInformation* popinfo, std::string& filename, int* ext3D,
                                 int imt, int jmt, Matrix2DInt& data);
-  static int LoadDataBlock3DFloat(POPInputInformation* popinfo, std::string filename, int* ext3D,
+  static int LoadDataBlock3DFloat(POPInputInformation* popinfo, std::string& filename, int* ext3D,
                                   int imt, int jmt, int km, Matrix3DFloat& data);
  protected:
   vtkAbstractPOPReader();
