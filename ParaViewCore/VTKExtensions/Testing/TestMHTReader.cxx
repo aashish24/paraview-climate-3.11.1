@@ -4,12 +4,22 @@
 #include "vtkNew.h"
 #include "vtkPointData.h"
 
-int main()
+#include <string>
+
+int main(int argc, char* argv[])
 {
+  if(argc < 3)
+    {
+    vtkGenericWarningMacro("Must provide the UVCDAT test data directory.");
+    return 1;
+    }
   vtkNew<vtkDummyController> controller;
   controller->SetGlobalController(controller.GetPointer());
+  std::string fileName = argv[2];
+  fileName.append("/p94m/in_msf");
+  cerr << fileName << " is the filename\n";
   vtkNew<vtkMHTReader> reader;
-  reader->SetFileName("/home/acbauer/DATA/ParaViewData/Data/MHT/mhttest1/no_pbc_in_msf.mht");
+  reader->SetFileName(fileName.c_str());
   reader->Update();
 
   vtkDataSet* mhtGrid = vtkDataSet::SafeDownCast(reader->GetOutput());
@@ -18,8 +28,8 @@ int main()
     vtkGenericWarningMacro("Cannot find MHT output grid.");
     return 1;
     }
-  if(mhtGrid->GetNumberOfPoints() != 301 ||
-     mhtGrid->GetNumberOfCells() != 300)
+  if(mhtGrid->GetNumberOfPoints() != 161 ||
+     mhtGrid->GetNumberOfCells() != 160)
     {
     vtkGenericWarningMacro("MHT grid has wrong number of points or cells");
     return 1;
@@ -34,14 +44,14 @@ int main()
     sum += mhtValues->GetTuple1(i);
     squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
     }
-  if(sum < 84.1 || sum > 84.2 || sum != sum)
+  if(sum < 1.47e+09 || sum > 1.49e+09 || sum != sum)
     {
-    vtkGenericWarningMacro("Global MHT sum " << sum << " but should be 84.1643.");
+    vtkGenericWarningMacro("Global MHT sum " << sum << " but should be 1.47997e+09.");
     return 1;
     }
-  if(squaredSum < 279. || squaredSum > 280. || squaredSum != squaredSum)
+  if(squaredSum < 1.65e+16 || squaredSum > 1.75e+16 || squaredSum != squaredSum)
     {
-    vtkGenericWarningMacro("Global MHT squared sum " << squaredSum << " but should be 279.805.");
+    vtkGenericWarningMacro("Global MHT squared sum " << squaredSum << " but should be 1.69631e+16.");
     return 1;
     }
 
@@ -54,14 +64,14 @@ int main()
     sum += mhtValues->GetTuple1(i);
     squaredSum += mhtValues->GetTuple1(i)*mhtValues->GetTuple1(i);
     }
-  if(sum < 150. || sum > 151. || sum != sum)
+  if(sum < 2.5e+08 || sum > 2.6e+08 || sum != sum)
     {
-    vtkGenericWarningMacro("Atlantic MHT sum " << sum << " but should be 150.715.");
+    vtkGenericWarningMacro("Atlantic MHT sum " << sum << " but should be 2.54814e+08.");
     return 1;
     }
-  if(squaredSum < 121. || squaredSum > 122. || squaredSum != squaredSum)
+  if(squaredSum < 6.43e+14 || squaredSum > 6.44e+14 || squaredSum != squaredSum)
     {
-    vtkGenericWarningMacro("Atlantic MHT squared sum " << squaredSum << " but should be 121.712.");
+    vtkGenericWarningMacro("Atlantic MHT squared sum " << squaredSum << " but should be 6.4383e+14.");
     return 1;
     }
 
