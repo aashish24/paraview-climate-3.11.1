@@ -8,14 +8,14 @@
 
 int main(int argc, char* argv[])
 {
-  if(argc < 3)
+  if(argc < 2)
     {
     vtkGenericWarningMacro("Must provide the UVCDAT test data directory.");
     return 1;
     }
   vtkNew<vtkDummyController> controller;
   controller->SetGlobalController(controller.GetPointer());
-  std::string fileName = argv[2];
+  std::string fileName = argv[1];
   fileName.append("/p94m/in_msf");
   cerr << fileName << " is the filename\n";
   vtkNew<vtkMHTReader> reader;

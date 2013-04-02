@@ -33,10 +33,15 @@ ENDFOREACH(name)
 
 if(UVCDAT_TestData)
 ADD_EXECUTABLE(TestMHTReader TestMHTReader.cxx)
-  ADD_TEST(TestMHTReader ${CXX_TEST_PATH}/TestMHTReader TestMHTReader
+  ADD_TEST(TestMHTReader ${CXX_TEST_PATH}/TestMHTReader
     ${UVCDAT_TestData}
     )
   TARGET_LINK_LIBRARIES(TestMHTReader vtkPVVTKExtensions)
+ADD_EXECUTABLE(TestMOCReader TestMOCReader.cxx)
+  ADD_TEST(TestMOCReader ${CXX_TEST_PATH}/TestMOCReader
+    ${UVCDAT_TestData}
+    )
+  TARGET_LINK_LIBRARIES(TestMOCReader vtkPVVTKExtensions)
 endif()
 
 
