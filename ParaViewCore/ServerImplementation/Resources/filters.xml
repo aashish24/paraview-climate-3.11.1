@@ -11028,7 +11028,8 @@ This property controls how the filter works to generate tensor cell data. You ca
    <!-- ==================================================================== -->
    <SourceProxy name="MultiBlockTemporalStatistics"
                 class="vtkMultiBlockTemporalStatistics"
-                label="MultiBlock Temporal Statistics">
+                label="MultiBlock Temporal Statistics"
+                executive="vtkPVMultiBlockTemporalStatisticsExecutive">
      <Documentation
          long_help="Computes temporal statistics using time compartments."
          short_help="Computes temporal statistics using time compartments.">
