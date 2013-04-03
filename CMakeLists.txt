@@ -181,6 +181,12 @@ FIND_PATH(PARAVIEW_DATA_ROOT ParaViewData.readme
   )
 
 #########################################################################
+# Configure data directory specific to UVCDAT
+FIND_PATH(UVCDAT_TestData p94
+  $ENV{UVCDAT_TestData}
+  )
+
+#########################################################################
 # Configure Python
 OPTION(PARAVIEW_ENABLE_PYTHON "Enable/Disable Python scripting support." OFF)
 
