@@ -10,7 +10,6 @@ SET(ServersFilters_SRCS
   TestTilesHelper
   TestSortingTable
   TestMultiBlockTemporalStatistics
-  TestMHTReader
   )
 
 IF (VTK_DATA_ROOT)
@@ -30,6 +29,21 @@ FOREACH(name ${ServersFilters_SRCS})
     )
   TARGET_LINK_LIBRARIES(${name} vtkPVVTKExtensions)
 ENDFOREACH(name)
+
+
+if(UVCDAT_TestData)
+ADD_EXECUTABLE(TestMHTReader TestMHTReader.cxx)
+  ADD_TEST(TestMHTReader ${CXX_TEST_PATH}/TestMHTReader
+    ${UVCDAT_TestData}
+    )
+  TARGET_LINK_LIBRARIES(TestMHTReader vtkPVVTKExtensions)
+ADD_EXECUTABLE(TestMOCReader TestMOCReader.cxx)
+  ADD_TEST(TestMOCReader ${CXX_TEST_PATH}/TestMOCReader
+    ${UVCDAT_TestData}
+    )
+  TARGET_LINK_LIBRARIES(TestMOCReader vtkPVVTKExtensions)
+endif()
+
 
 IF(PARAVIEW_USE_ICE_T AND VTK_USE_MPI AND VTK_USE_DISPLAY AND
    PARAVIEW_DATA_ROOT)
