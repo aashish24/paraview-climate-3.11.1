@@ -1890,7 +1890,7 @@ void vtkNetCDFCFReader::AddUnstructuredSphericalCoordinates(
 
 //-----------------------------------------------------------------------------
 int vtkNetCDFCFReader::RequestInformationHelper(
-  vtkDoubleArray* timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
+  vtkSmartPointer<vtkDoubleArray>& timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
 {
   vtkMultiProcessController* controller =
     vtkMultiProcessController::GetGlobalController();
