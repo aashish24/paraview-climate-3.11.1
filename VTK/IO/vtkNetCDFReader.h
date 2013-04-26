@@ -224,7 +224,8 @@ protected:
   // Description:
   // Get the time values if they exist and compute wholeExtent and
   // loadingDimensions. Return 0 if unsuccessful.
-  virtual int RequestInformationHelper(vtkDoubleArray* timeValues, int wholeExtent[6],
+  virtual int RequestInformationHelper(vtkSmartPointer<vtkDoubleArray>& timeValues,
+                                       int wholeExtent[6],
                                        vtkIntArray* loadingDimensions);
 
 private:

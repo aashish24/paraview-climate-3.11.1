@@ -774,7 +774,7 @@ bool vtkNetCDFReader::GetNetCDFFileDescriptor(int& ncFD)
 
 //-----------------------------------------------------------------------------
 int vtkNetCDFReader::RequestInformationHelper(
-  vtkDoubleArray* timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
+  vtkSmartPointer<vtkDoubleArray>& timeValues, int wholeExtent[6], vtkIntArray* loadingDimensions)
 {
   int ncFD;
   if(this->GetNetCDFFileDescriptor(ncFD) == false)
