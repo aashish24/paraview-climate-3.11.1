@@ -94,6 +94,8 @@ import sys
 import os
 import paraview
 
+paraview.servermanager.misc.GlobalMapperProperties.GlobalImmediateModeRendering = 1
+
 # trying to import the library where I can specify the global and subcontrollers
 try:
     import libvtkParallelPython as vtkParallel # requires LD_LIBRARY_PATH being properly set
